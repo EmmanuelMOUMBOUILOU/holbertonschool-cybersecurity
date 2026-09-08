@@ -1,2 +1,2 @@
 #!/bin/bash
-ps -o ppid= -p "$1" | awk '{print $1}'
+ps -o ppid= -p "$1" | tr -d ' '
