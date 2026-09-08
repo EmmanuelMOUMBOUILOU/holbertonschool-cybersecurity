@@ -1,0 +1,2 @@
+#!/bin/bash
+awk -v cutoff="$(date -d '30 minutes ago' +%s)" -v year="$(date +%Y)" 'BEGIN{split("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec",m); for(i=1;i<=12;i++) mon[m[i]]=i} /sshd/ {split($3,t,":"); ts=mktime(year" "mon[$1]" "$2" "t[1]" "t[2]" "t[3]); if(ts>=cutoff) print}' "$1"
