@@ -48,9 +48,24 @@ for library in network ssh identity system; do
     log "INFO" "Loaded library: $library"
 done
 
-harden_network
-harden_ssh
-harden_identity
-harden_system
+harden_system || {
+    log "ERROR" "System hardening failed"
+    exit 1
+}
+
+harden_network || {
+    log "ERROR" "Network hardening failed"
+    exit 1
+}
+
+harden_ssh || {
+    log "ERROR" "SSH hardening failed"
+    exit 1
+}
+
+harden_identity || {
+    log "ERROR" "Identity hardening failed"
+    exit 1
+}
 
 log "INFO" "Hardening framework execution completed"
