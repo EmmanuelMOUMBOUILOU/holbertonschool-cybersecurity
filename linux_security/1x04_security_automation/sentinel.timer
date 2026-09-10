@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Sentinel Security Agent every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Unit=sentinel.service
+
+[Install]
+WantedBy=timers.target
