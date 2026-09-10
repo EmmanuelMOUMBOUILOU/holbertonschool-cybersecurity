@@ -1,0 +1,2 @@
+#!/bin/bash
+CONFIG_FILE="${1:-sentinel.conf}"; [ -f "$CONFIG_FILE" ] || { echo "Error: configuration file not found" >&2; exit 1; }; source "$CONFIG_FILE"; declare -p SERVICES FILES_TO_WATCH >/dev/null 2>&1 || { echo "Error: required configuration variables are missing" >&2; exit 1; }
