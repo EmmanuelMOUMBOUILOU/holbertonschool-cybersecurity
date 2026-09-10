@@ -65,12 +65,23 @@ user_is_privileged() {
     return 1
 }
 
+user_is_excluded() {
+    local user="$1"
+    local excluded
+
+    for excluded in "${CLEANUP_EXCLUDED_USERS[@]}"; do
+        [ "$user" = "$excluded" ] && return 0
+    done
+
+    return 1
+}
+
 cleanup_users() {
     local user
     local uid
 
     while IFS=: read -r user _ uid _; do
-        if [ "$uid" -gt "$CLEANUP_UID_THRESHOLD" ]; then
+        if [ "$uid" -gt "$CLEANUP_UID_THRESHOLD" ] && ! user_is_excluded "$user"; then
             if user_is_privileged "$user"; then
                 log "SUCCESS" "Preserved privileged user $user"
             else

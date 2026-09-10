@@ -4,12 +4,8 @@ set_sshd_option() {
     local option="$1"
     local value="$2"
 
-    if grep -Eq "^[#[:space:]]*${option}[[:space:]]+" "$SSHD_CONFIG"; then
-        sed -i -E "0,/^[#[:space:]]*${option}[[:space:]]+.*/s//${option} ${value}/" "$SSHD_CONFIG"
-        sed -i -E "2,\$ {/^[#[:space:]]*${option}[[:space:]]+.*/d;}" "$SSHD_CONFIG"
-    else
-        printf '%s %s\n' "$option" "$value" >> "$SSHD_CONFIG"
-    fi
+    sed -i -E "/^[#[:space:]]*${option}[[:space:]]+/d" "$SSHD_CONFIG"
+    printf '%s %s\n' "$option" "$value" >> "$SSHD_CONFIG"
 
     log "SUCCESS" "SSH option $option set to $value"
 }

@@ -1,19 +1,28 @@
 #!/bin/bash
 
 update_system() {
-    if DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1; then
-        log "SUCCESS" "Package repositories updated"
-    else
-        log "ERROR" "Failed to update package repositories"
+    local output
+    local rc
+
+    output=$(DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout="$APT_LOCK_TIMEOUT" update 2>&1)
+    rc=$?
+
+    if [ "$rc" -ne 0 ]; then
+        log "ERROR" "Failed to update package repositories (exit $rc): $(printf '%s\n' "$output" | tail -n 5 | tr '\n' ' ')"
         return 1
     fi
 
-    if DEBIAN_FRONTEND=noninteractive apt-get upgrade -y >/dev/null 2>&1; then
-        log "SUCCESS" "Installed package upgrades"
-    else
-        log "ERROR" "Failed to upgrade packages"
+    log "SUCCESS" "Package repositories updated"
+
+    output=$(DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout="$APT_LOCK_TIMEOUT" upgrade -y 2>&1)
+    rc=$?
+
+    if [ "$rc" -ne 0 ]; then
+        log "ERROR" "Failed to upgrade packages (exit $rc): $(printf '%s\n' "$output" | tail -n 5 | tr '\n' ' ')"
         return 1
     fi
+
+    log "SUCCESS" "Installed package upgrades"
 }
 
 remove_bloatware() {
@@ -21,7 +30,7 @@ remove_bloatware() {
 
     for package in "${BLOATWARE_PACKAGES[@]}"; do
         if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
-            if DEBIAN_FRONTEND=noninteractive apt-get remove -y "$package" >/dev/null 2>&1; then
+            if DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout="$APT_LOCK_TIMEOUT" remove -y "$package" >/dev/null 2>&1; then
                 log "SUCCESS" "Removed package $package"
             else
                 log "ERROR" "Failed to remove package $package"
@@ -40,7 +49,7 @@ install_security_tools() {
         if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
             log "SUCCESS" "Package $package already installed"
         else
-            if DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" >/dev/null 2>&1; then
+            if DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout="$APT_LOCK_TIMEOUT" install -y "$package" >/dev/null 2>&1; then
                 log "SUCCESS" "Installed package $package"
             else
                 log "ERROR" "Failed to install package $package"
