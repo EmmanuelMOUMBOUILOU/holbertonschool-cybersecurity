@@ -10,7 +10,7 @@ set_login_def() {
         printf '%s %s\n' "$key" "$value" >> "$LOGIN_DEFS"
     fi
 
-    log "SUCCESS" "Password policy $key set to $value"
+    log "INFO" "Password policy $key set to $value"
 }
 
 configure_password_policy() {
@@ -27,7 +27,7 @@ configure_password_policy() {
     set_login_def "PASS_MIN_LEN" "$PASS_MIN_LEN"
     set_login_def "PASS_MAX_DAYS" "$PASS_MAX_DAYS"
 
-    log "SUCCESS" "Password complexity policy configured"
+    log "INFO" "Password complexity policy configured"
 }
 
 configure_lockout_policy() {
@@ -49,7 +49,7 @@ configure_lockout_policy() {
         printf '\naccount required pam_faillock.so\n' >> "$PAM_ACCOUNT_FILE"
     fi
 
-    log "SUCCESS" "Account lockout configured after $FAIL_LOCK_ATTEMPTS failed attempts"
+    log "INFO" "Account lockout configured after $FAIL_LOCK_ATTEMPTS failed attempts"
 }
 
 user_is_privileged() {
@@ -83,25 +83,26 @@ cleanup_users() {
     while IFS=: read -r user _ uid _; do
         if [ "$uid" -gt "$CLEANUP_UID_THRESHOLD" ] && ! user_is_excluded "$user"; then
             if user_is_privileged "$user"; then
-                log "SUCCESS" "Preserved privileged user $user"
+                log "INFO" "Preserved privileged user $user"
             else
                 if userdel -r "$user" >/dev/null 2>&1; then
-                    log "SUCCESS" "Deleted non-compliant user $user with UID $uid"
+                    REMOVED_USERS+=("$user")
+                    log "INFO" "Deleted non-compliant user $user with UID $uid"
                 else
                     log "ERROR" "Failed to delete non-compliant user $user"
                     return 1
                 fi
             fi
         fi
-    done < /etc/passwd
+    done < "$PASSWD_FILE"
 }
 
 lock_root_password() {
     if passwd -S root | awk '{print $2}' | grep -Eq '^(L|LK)$'; then
-        log "SUCCESS" "Root password already locked"
+        log "INFO" "Root password already locked"
     else
         if passwd -l root >/dev/null 2>&1; then
-            log "SUCCESS" "Root password locked"
+            log "INFO" "Root password locked"
         else
             log "ERROR" "Failed to lock root password"
             return 1
@@ -115,5 +116,5 @@ harden_identity() {
     cleanup_users || return 1
     lock_root_password || return 1
 
-    log "SUCCESS" "Identity hardening completed"
+    log "INFO" "Identity hardening completed"
 }

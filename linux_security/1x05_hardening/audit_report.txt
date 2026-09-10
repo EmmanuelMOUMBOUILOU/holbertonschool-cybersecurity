@@ -1,0 +1,21 @@
+===============================================
+ HARDENING AUDIT REPORT - 2026-09-10 16:52:51
+===============================================
+
+[INFO] Hardening procedure completed successfully.
+[INFO] SSH configured on port 22.
+[INFO] SSH password authentication: no.
+[INFO] SSH public key authentication: yes.
+[INFO] SSH root login: no.
+[INFO] Firewall policy file: /etc/hardening/firewall.rules.
+[INFO] Firewall allowed TCP ports: 22, 80, 443.
+[INFO] 0 unauthorized users removed; no non-compliant users found.
+[INFO] Installed this run: none; required packages were already present.
+[INFO] Required security packages verified: auditd, fail2ban, libpam-pwquality.
+[INFO] Removed this run: none; prohibited packages were already absent.
+[INFO] Prohibited packages verified absent: telnet, ftp, netcat-traditional.
+[WARN] Package updates skipped (already up to date)
+
+===============================================
+ COMPLIANCE STATUS: PASS
+===============================================
