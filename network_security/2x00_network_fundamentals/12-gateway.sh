@@ -1,3 +1,2 @@
 #!/bin/bash
-route=$(ip route | grep '^default')
-printf "%s" "$(echo "$route" | awk '{print $3}')"
+ip route | grep '^default' | awk '{printf "%s",$3}'
