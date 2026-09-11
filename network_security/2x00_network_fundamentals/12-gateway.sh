@@ -1,2 +1,3 @@
 #!/bin/bash
-ip route | awk '$1=="default" {printf "%s",$3; exit}'
+route=$(ip route | grep '^default')
+printf "%s" "$(echo "$route" | awk '{print $3}')"
