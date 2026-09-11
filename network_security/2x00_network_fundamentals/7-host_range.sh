@@ -1,0 +1,2 @@
+#!/bin/bash
+IFS="." read -r a b c d <<< "$1"; ip=$(((a<<24)|(b<<16)|(c<<8)|d)); cidr=$2; ((cidr==0)) && mask=0 || mask=$(((0xFFFFFFFF << (32-cidr)) & 0xFFFFFFFF)); network=$((ip & mask)); broadcast=$((network | ((~mask) & 0xFFFFFFFF))); first=$((network+1)); last=$((broadcast-1)); printf "%d.%d.%d.%d - %d.%d.%d.%d" "$(((first>>24)&255))" "$(((first>>16)&255))" "$(((first>>8)&255))" "$((first&255))" "$(((last>>24)&255))" "$(((last>>16)&255))" "$(((last>>8)&255))" "$((last&255))"
