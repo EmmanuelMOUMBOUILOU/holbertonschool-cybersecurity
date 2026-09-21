@@ -1,1 +1,1 @@
-telnet||HH:MM:SS
+telnet||09:09:00
