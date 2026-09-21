@@ -1,0 +1,1 @@
+FLAG{TON_FLAG}
