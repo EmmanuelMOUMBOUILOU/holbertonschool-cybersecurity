@@ -1,1 +1,1 @@
-DOMAINE_C2
+cmd-relay.darknet-c2.io
