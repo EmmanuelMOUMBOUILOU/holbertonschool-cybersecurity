@@ -1,0 +1,32 @@
+/usr/sbin/nginx {
+  # nginx must be able to read its own executable
+  /usr/sbin/nginx r,
+
+  # nginx configuration
+  /etc/nginx/** r,
+
+  # Static web content
+  /usr/share/nginx/html/** r,
+
+  # nginx logs
+  /var/log/nginx/** w,
+
+  # SecureHealth plugin configuration and data
+  /opt/securehealth/plugin.conf r,
+  /opt/securehealth/data/** r,
+
+  # TCP and UDP networking
+  network inet stream,
+  network inet dgram,
+
+  # PID/runtime files required by nginx
+  /run/nginx.pid rw,
+  /var/run/nginx.pid rw,
+
+  # SSL/TLS certificates and private keys
+  /etc/ssl/** r,
+
+  # Shared libraries required to start nginx
+  /lib/** mr,
+  /usr/lib/** mr,
+}
