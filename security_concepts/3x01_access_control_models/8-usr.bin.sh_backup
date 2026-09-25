@@ -1,0 +1,7 @@
+/usr/bin/sh_backup {
+/usr/bin/sh_backup r,
+/var/backups/ rw,
+/var/backups/** rw,
+/etc/sh_backup.conf r,
+/var/log/sh_backup.log w,
+}
