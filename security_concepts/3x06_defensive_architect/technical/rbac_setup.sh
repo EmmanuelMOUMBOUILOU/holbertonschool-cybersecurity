@@ -16,12 +16,20 @@ echo "[+] Configuring RBAC..."
 # 1. Create RBAC Groups
 # --------------------------------------------------
 
-for group in devs ops auditors; do
-    if ! getent group "$group" > /dev/null; then
-        groupadd "$group"
-        echo "[+] Created group: $group"
-    fi
-done
+if ! getent group devs > /dev/null; then
+    groupadd devs
+    echo "[+] Created group: devs"
+fi
+
+if ! getent group ops > /dev/null; then
+    groupadd ops
+    echo "[+] Created group: ops"
+fi
+
+if ! getent group auditors > /dev/null; then
+    groupadd auditors
+    echo "[+] Created group: auditors"
+fi
 
 # --------------------------------------------------
 # 2. Create Dummy Users
