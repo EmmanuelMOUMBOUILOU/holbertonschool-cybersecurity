@@ -35,18 +35,20 @@ fi
 # 2. Create Dummy Users
 # --------------------------------------------------
 
-create_user() {
-    local user="$1"
+if ! id sarah > /dev/null 2>&1; then
+    useradd -m -s /bin/bash sarah
+    echo "[+] Created user: sarah"
+fi
 
-    if ! id "$user" > /dev/null 2>&1; then
-        useradd -m -s /bin/bash "$user"
-        echo "[+] Created user: $user"
-    fi
-}
+if ! id opsuser > /dev/null 2>&1; then
+    useradd -m -s /bin/bash opsuser
+    echo "[+] Created user: opsuser"
+fi
 
-create_user sarah
-create_user opsuser
-create_user dave
+if ! id dave > /dev/null 2>&1; then
+    useradd -m -s /bin/bash dave
+    echo "[+] Created user: dave"
+fi
 
 # --------------------------------------------------
 # 3. Assign Users to Roles
