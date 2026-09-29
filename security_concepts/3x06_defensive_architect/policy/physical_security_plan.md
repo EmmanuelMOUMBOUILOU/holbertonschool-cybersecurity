@@ -125,45 +125,87 @@ operational problems.
 
 ## 3. Long-Term Actions
 
-Nexus Financial should establish a sustainable physical security program.
+Nexus Financial should establish a sustainable physical and endpoint security program
+that addresses the root causes identified during the physical walkthrough.
 
-### Dedicated Secure Server Area
+### Dedicated Office and Secure Infrastructure
 
-Move critical infrastructure to a properly secured server room or managed hosting
-environment when financially and operationally feasible.
+Nexus Financial should evaluate moving critical operations away from an open
+co-working environment to a dedicated office where physical access can be fully
+controlled.
 
-The area should provide controlled access, adequate cooling, fire protection, and
-environmental monitoring.
+Critical production infrastructure should be moved to a proper secured data center
+or reputable managed cloud environment instead of being hosted in a glass-walled
+meeting room.
 
-### Physical Access Logging
+The selected environment should provide controlled access, redundant cooling,
+fire protection, environmental monitoring, and appropriate physical security.
 
-Implement access control that records individual entry into sensitive areas.
+### Badge and Biometric Access Control
 
-Logs should identify who entered, when access occurred, and which restricted area
-was accessed.
+Sensitive areas such as the server room should use individually assigned access
+badges combined with biometric access control where appropriate.
 
-Access logs should be reviewed when investigating suspicious activity.
+Access must be granted according to job responsibilities and the principle of
+least privilege.
+
+Every entry into sensitive areas should be logged with the identity of the person,
+date, and time.
+
+Access permissions must be reviewed regularly and revoked immediately when an
+employee or contractor leaves the company.
+
+### CCTV Monitoring
+
+CCTV cameras should be installed at entrances, exits, the server room entrance,
+and other sensitive infrastructure areas.
+
+Cameras should be positioned to monitor unauthorized physical access without
+unnecessarily recording private employee activity.
+
+CCTV recordings should be securely stored, access-controlled, retained according
+to company policy, and available for security investigations.
+
+### Mobile Device Management
+
+Nexus Financial should deploy a Mobile Device Management (MDM) solution for
+company MacBooks.
+
+MDM should enforce security requirements such as automatic screen locking,
+full-disk encryption, operating system updates, approved security configurations,
+and remote lock or wipe capabilities for lost or stolen devices.
+
+This ensures that workstation security does not depend entirely on individual
+employee behavior.
 
 ### Network Access Protection
-
-Implement stronger controls against unauthorized devices connecting to the
-corporate network.
 
 Network segmentation should separate guest, employee, administrative, and
 production environments.
 
-### Periodic Physical Security Reviews
+Unused network switch ports should remain disabled.
 
-Perform regular physical walkthroughs to identify issues such as:
+Nexus Financial should implement stronger network access controls to prevent
+unauthorized devices from connecting to internal networks.
 
-- Propped-open doors.
-- Unattended unlocked workstations.
-- Exposed credentials.
-- Unauthorized visitors.
-- Unsecured access cards.
-- Active unused network ports.
+### Professional Physical Security Audit
 
-Findings should be documented, assigned to an owner, and tracked until resolved.
+Nexus Financial should conduct a periodic professional and independent physical
+security audit.
+
+The audit should evaluate office access, visitor management, server room security,
+access cards, CCTV coverage, endpoint practices, and network infrastructure.
+
+Audit findings should be documented, assigned to responsible owners, prioritized
+according to risk, and tracked until remediation is complete.
+
+### Periodic Access Reviews
+
+Physical access permissions, active badges, spare cards, and access logs should
+be reviewed regularly.
+
+The review should identify unnecessary privileges, inactive credentials, missing
+cards, and unusual access activity.
 
 ## 4. Security Awareness and Training
 
