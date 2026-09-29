@@ -50,8 +50,7 @@ ufw allow from 10.0.1.10 to any port 5432 proto tcp
 ufw deny 22/tcp
 
 # Allow SSH only from the Bastion Host.
-ufw allow from "$BASTION_HOST_IP" to any port 22 proto tcp
-
+ufw allow from 10.0.1.5 to any port 22 proto tcp
 # --------------------------------------------------
 # 4. Enable Firewall
 # --------------------------------------------------
