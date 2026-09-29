@@ -15,7 +15,7 @@ if [ "$#" -ne 2 ]; then
     exit 1
 fi
 
-ufw allow from "$WEB_SERVER_PRIVATE_IP" to any port 5432 proto tcp
+ufw allow from 10.0.1.10 to any port 5432 proto tcp
 
 echo "[+] Configuring Nexus Financial network defense..."
 
@@ -40,7 +40,7 @@ ufw default allow outgoing
 ufw deny 5432/tcp
 
 # Allow PostgreSQL only from the Web Server private IP.
-ufw allow from "$WEB_SERVER_PRIVATE_IP" to any port 5432 proto tcp
+ufw allow from 10.0.1.10 to any port 5432 proto tcp
 
 # --------------------------------------------------
 # 3. SSH Protection
