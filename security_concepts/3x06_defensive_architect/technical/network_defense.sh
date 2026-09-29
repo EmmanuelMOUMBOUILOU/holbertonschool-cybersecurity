@@ -15,8 +15,7 @@ if [ "$#" -ne 2 ]; then
     exit 1
 fi
 
-WEB_SERVER_PRIVATE_IP="$1"
-BASTION_HOST_IP="$2"
+ufw allow from "$WEB_SERVER_PRIVATE_IP" to any port 5432 proto tcp
 
 echo "[+] Configuring Nexus Financial network defense..."
 
