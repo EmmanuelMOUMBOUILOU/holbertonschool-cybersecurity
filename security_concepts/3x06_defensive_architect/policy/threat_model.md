@@ -25,6 +25,28 @@ The most urgent risks are the Internet-exposed production database, shared produ
 
 These risks directly threaten the confidentiality, integrity, availability, and accountability of Nexus Financial's critical systems and data.
 
+## Risk Prioritization
+
+### Critical Risks
+
+The production PostgreSQL database exposed to the Internet represents a critical risk because it may provide external attackers with direct access to sensitive financial and customer data.
+
+The shared `nexus_master.pem` SSH key is also critical because multiple users can access production systems using the same credential, reducing accountability and increasing the impact of credential compromise.
+
+### High Risks
+
+Excessive root privileges increase the impact of both human error and compromised developer accounts.
+
+The absence of centralized logging prevents reliable detection, investigation, and attribution of malicious activity.
+
+Weak physical security allows unauthorized visitors to reach sensitive systems and network infrastructure.
+
+### Operational Risks
+
+Unverified backups create a significant availability risk because Nexus Financial cannot guarantee that critical data can be restored after an incident.
+
+Unlocked employee workstations and exposed credentials increase the likelihood of unauthorized access through physical or insider threats.
+
 ## Recommended Security Direction
 
 Nexus Financial should apply defense in depth by combining:
