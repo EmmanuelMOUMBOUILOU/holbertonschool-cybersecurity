@@ -190,3 +190,86 @@ PASS - Public access to sensitive administrative and database services is blocke
 
 These controls implement network least privilege and reduce unnecessary exposure
 of critical Nexus Financial services.
+
+---
+
+# 5. Centralized Logging and Auditing
+
+## Control: rsyslog and auditd Monitoring
+
+### Verification Command
+
+```bash
+systemctl status rsyslog
+systemctl is-active rsyslog
+cat /etc/rsyslog.conf | grep @
+grep -R "@@10.0.1.20:514" /etc/rsyslog.d/
+systemctl status auditd
+systemctl is-active auditd
+auditctl -l
+auditctl -s
+auditctl -l | grep privileged_commands
+```
+
+### Expected Output
+
+The rsyslog service should be active:
+
+```text
+Active: active (running)
+```
+
+The centralized logging configuration should contain forwarding rules to the
+central log server:
+
+```text
+*.crit @@10.0.1.20:514
+auth,authpriv.* @@10.0.1.20:514
+```
+
+The auditd service should also be active:
+
+```text
+Active: active (running)
+```
+
+The `auditctl -l` command should display active audit rules monitoring sensitive
+files such as:
+
+```text
+/etc/passwd
+/etc/group
+/etc/shadow
+/etc/gshadow
+/etc/sudoers
+/etc/sudoers.d/
+/etc/ssh/sshd_config
+```
+
+The audit rules should also monitor privileged command execution using `execve`
+and the `privileged_commands` audit key.
+
+The audit status should indicate that the audit configuration is enabled and
+immutable until reboot:
+
+```text
+enabled 2
+```
+
+### Self-Assessment
+
+PASS - rsyslog is configured to forward critical and authentication logs to the
+central logging server.
+
+PASS - Centralized logging protects important evidence from being available only
+on the potentially compromised local system.
+
+PASS - auditd monitors changes to sensitive authentication, authorization, and
+SSH configuration files.
+
+PASS - auditd monitors privileged command execution.
+
+PASS - The audit configuration is immutable until reboot.
+
+These controls improve detection, accountability, forensic investigation, and
+protection against local log tampering.
