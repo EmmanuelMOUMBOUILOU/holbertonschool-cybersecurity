@@ -130,3 +130,63 @@ User home directories are protected with strict permissions.
 
 The implementation therefore applies Role-Based Access Control, least privilege,
 individual accountability, and separation of duties.
+
+---
+
+---
+
+# 4. Network Defense Audit
+
+## Control: UFW Firewall and Network Segmentation
+
+### Verification Command
+
+```bash
+ufw status verbose
+ufw status numbered
+ss -tlnp | grep 5432
+ss -tlnp | grep ':22'
+```
+
+### Expected Output
+
+The UFW firewall must be active and enforce a default-deny policy:
+
+```text
+Status: active
+Default: deny (incoming), allow (outgoing)
+```
+
+PostgreSQL TCP port 5432 must not be accessible from the public Internet.
+
+The firewall rules should allow PostgreSQL only from the approved Web Server
+private IP:
+
+```text
+5432/tcp ALLOW IN 10.0.1.10
+```
+
+SSH TCP port 22 must be restricted to the approved Bastion Host:
+
+```text
+22/tcp ALLOW IN 10.0.1.5
+```
+
+No rule should allow PostgreSQL port 5432 or SSH port 22 from arbitrary public
+sources.
+
+The `ss` commands should confirm which local services are listening on ports
+5432 and 22 so that their exposure can be compared with the UFW rules.
+
+### Self-Assessment
+
+PASS - UFW is enabled with a default-deny incoming policy.
+
+PASS - PostgreSQL port 5432 is restricted to the approved Web Server private IP.
+
+PASS - SSH port 22 is restricted to the approved Bastion Host.
+
+PASS - Public access to sensitive administrative and database services is blocked.
+
+These controls implement network least privilege and reduce unnecessary exposure
+of critical Nexus Financial services.
