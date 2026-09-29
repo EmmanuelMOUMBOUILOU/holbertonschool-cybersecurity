@@ -213,47 +213,46 @@ auditctl -l | grep privileged_commands
 
 ### Expected Output
 
-The rsyslog service should be active:
+The RBAC groups must exist:
 
 ```text
-Active: active (running)
+devs:x:<GID>:sarah
+ops:x:<GID>:opsuser
+auditors:x:<GID>:dave
 ```
 
-The centralized logging configuration should contain forwarding rules to the
-central log server:
+The command:
 
-```text
-*.crit @@10.0.1.20:514
-auth,authpriv.* @@10.0.1.20:514
+```bash
+sudo -l -U sarah
 ```
 
-The auditd service should also be active:
+should produce output similar to:
 
 ```text
-Active: active (running)
+User sarah may run the following commands on this host:
+    (root) /bin/systemctl restart nginx
+    (root) /bin/systemctl status nginx
 ```
 
-The `auditctl -l` command should display active audit rules monitoring sensitive
-files such as:
+This confirms that Sarah has limited sudo access to the approved Nginx commands
+instead of unrestricted administrative privileges.
 
-```text
-/etc/passwd
-/etc/group
-/etc/shadow
-/etc/gshadow
-/etc/sudoers
-/etc/sudoers.d/
-/etc/ssh/sshd_config
+The command:
+
+```bash
+sudo -l -U dave
 ```
 
-The audit rules should also monitor privileged command execution using `execve`
-and the `privileged_commands` audit key.
+should confirm that Dave does not have unrestricted administrative sudo
+permissions.
 
-The audit status should indicate that the audit configuration is enabled and
-immutable until reboot:
+The home directories must have strict permissions:
 
 ```text
-enabled 2
+700 sarah sarah /home/sarah
+700 opsuser opsuser /home/opsuser
+700 dave dave /home/dave
 ```
 
 ### Self-Assessment
