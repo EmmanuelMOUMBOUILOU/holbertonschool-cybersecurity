@@ -6,10 +6,13 @@ import re
 
 
 APACHE_PATTERN = re.compile(
-    r'(?P<ip>\S+) - - '
-    r'\[(?P<date>[^\]]+)\] '
-    r'"(?P<method>\S+) (?P<path>\S+) [^"]+" '
-    r'(?P<status>\d{3}) (?P<size>\S+)'
+    r'(?P<ip>\d{1,3}(?:\.\d{1,3}){3})'
+    r'.*?\[(?P<date>[^\]]+)\]\s+'
+    r'"(?P<method>[A-Z]+)\s+'
+    r'(?P<path>.*?)'
+    r'(?:\s+HTTP/\d(?:\.\d+)?)?"\s+'
+    r'(?P<status>\d{3})\s+'
+    r'(?P<size>\d+|-)'
 )
 
 
