@@ -2,10 +2,11 @@
 """BreachCheck command-line security tool."""
 
 import argparse
+import configparser
+import hashlib
 import logging
 import re
 import sys
-import hashlib
 
 
 def setup_logging() -> None:
@@ -67,11 +68,22 @@ def validate_line(line: str) -> bool:
     return re.fullmatch(pattern, line) is not None
 
 
-def check_policy(password: str) -> str:
+def load_config(filename: str = "config.ini") -> configparser.ConfigParser:
+    """Load the security configuration or exit if it is missing."""
+    config = configparser.ConfigParser()
+
+    if not config.read(filename):
+        logging.error("Config file missing")
+        sys.exit(1)
+
+    return config
+
+
+def check_policy(password: str, min_length: int = 8) -> str:
     """Return WEAK or COMPLIANT according to password policy."""
     common_passwords = {"password", "123456"}
 
-    if len(password) < 8:
+    if len(password) < min_length:
         return "WEAK"
 
     if password.isalpha():
@@ -120,6 +132,14 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging()
+
+    config = load_config()
+    salt = config.get("SECURITY", "Salt")
+    min_length = config.getint("SECURITY", "MinLength")
+
+    logging.debug("Security configuration loaded")
+    logging.debug("Minimum password length: %d", min_length)
+    logging.debug("Salt configured: %s", bool(salt))
 
     logging.info("Processing file: %s", args.file)
 
