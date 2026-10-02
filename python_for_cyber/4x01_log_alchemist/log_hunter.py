@@ -54,6 +54,7 @@ class LogEntry:
         method: str = "",
         path: str = "",
         status=None,
+        size=None,
         user_agent: str = ""
     ) -> None:
         """Initialize a normalized log entry."""
@@ -65,6 +66,7 @@ class LogEntry:
         self.method = method
         self.path = path
         self.status = status
+        self.size = size
         self.user_agent = user_agent
 
 
@@ -119,6 +121,7 @@ def normalize_entry(
             method=parsed_dict.get("method", ""),
             path=parsed_dict.get("path", ""),
             status=status,
+            size=parsed_dict.get("size"),
             user_agent=parsed_dict.get("user_agent") or ""
         )
 
