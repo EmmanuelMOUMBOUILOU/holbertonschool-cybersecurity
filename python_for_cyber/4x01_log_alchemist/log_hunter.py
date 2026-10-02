@@ -2,6 +2,7 @@
 """LogHunter - efficient streaming log analysis engine."""
 
 import argparse
+import json
 import re
 from collections import Counter, defaultdict, deque
 from datetime import datetime
@@ -384,10 +385,43 @@ def correlate_events(entries):
             states[ip].clear()
 
 
+def export_report(alerts, filename, format="json"):
+    """Export dict and LogEntry alerts to a JSON report."""
+    if format.lower() != "json":
+        raise ValueError("Unsupported report format")
+
+    report_data = []
+
+    for alert in alerts:
+        if isinstance(alert, dict):
+            report_data.append(alert)
+        elif isinstance(alert, LogEntry):
+            report_data.append(vars(alert).copy())
+        else:
+            raise TypeError(
+                "Alerts must contain dict or LogEntry objects"
+            )
+
+    with open(filename, "w", encoding="utf-8") as report_file:
+        json.dump(
+            report_data,
+            report_file,
+            indent=2
+        )
+        report_file.write("\n")
+
+
 def main() -> None:
-    """Parse, enrich, and analyze log entries."""
+    """Parse, enrich, analyze, correlate, and report log entries."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("file", help="Path to the log file")
+    parser.add_argument(
+        "file",
+        help="Path to the log file"
+    )
+    parser.add_argument(
+        "--report",
+        help="Export alerts to a JSON report"
+    )
     args = parser.parse_args()
 
     print("[*] LogHunter - Log Analysis Engine")
@@ -494,6 +528,12 @@ def main() -> None:
         detect_bruteforce(authentication_failures)
     )
 
+    brute_force_alerts = sorted(
+        brute_force_alerts,
+        key=lambda item: item["count"],
+        reverse=True
+    )
+
     burst_alerts = list(
         detect_burst(
             iter_normalized_entries(args.file)
@@ -504,6 +544,12 @@ def main() -> None:
         correlate_events(
             iter_detected_entries(args.file)
         )
+    )
+
+    all_alerts = (
+        brute_force_alerts
+        + burst_alerts
+        + correlation_alerts
     )
 
     total_parsed = apache_count + syslog_count
@@ -556,11 +602,7 @@ def main() -> None:
         f"{len(brute_force_alerts)}"
     )
 
-    for alert in sorted(
-        brute_force_alerts,
-        key=lambda item: item["count"],
-        reverse=True
-    ):
+    for alert in brute_force_alerts:
         print(
             f"    {alert['ip']}: "
             f"{alert['count']} failures"
@@ -584,6 +626,23 @@ def main() -> None:
             f"    {alert['ip']}: "
             f"{' -> '.join(alert['stages'])}"
         )
+
+    if args.report:
+        try:
+            export_report(
+                all_alerts,
+                args.report
+            )
+            print(
+                f"[*] Report exported: "
+                f"{args.report} "
+                f"({len(all_alerts)} alerts)"
+            )
+        except (OSError, TypeError, ValueError) as error:
+            print(f"[ERROR] Could not export report: {error}")
+    else:
+        print(f"[*] Total alerts: {len(all_alerts)}")
+        print("[*] Use --report <file> to export.")
 
 
 if __name__ == "__main__":
