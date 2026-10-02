@@ -2,6 +2,7 @@
 """BreachCheck command-line security tool."""
 
 import argparse
+import re
 import sys
 
 
@@ -34,6 +35,12 @@ def clean_data(lines: list) -> list:
         clean_lines.append(line)
 
     return clean_lines
+
+
+def validate_line(line: str) -> bool:
+    """Return True if line follows a valid email:password format."""
+    pattern = r"^[^@\s:]+@[^@\s:]+\.[^@\s:]+:[^:\s]+$"
+    return re.fullmatch(pattern, line) is not None
 
 
 def main() -> None:
