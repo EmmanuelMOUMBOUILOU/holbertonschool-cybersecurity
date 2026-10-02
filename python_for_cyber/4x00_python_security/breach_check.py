@@ -2,8 +2,30 @@
 """BreachCheck command-line security tool."""
 
 import argparse
+import logging
 import re
 import sys
+
+
+def setup_logging() -> None:
+    """Configure console and file logging."""
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
+    formatter = logging.Formatter(
+        "%(asctime)s - %(levelname)s - %(message)s"
+    )
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+
+    file_handler = logging.FileHandler("breach_check.log")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
 
 
 def read_file(filename: str) -> list:
@@ -12,10 +34,10 @@ def read_file(filename: str) -> list:
         with open(filename, "r", encoding="utf-8") as file:
             return file.readlines()
     except FileNotFoundError:
-        print(f"[ERROR] File not found: {filename}", file=sys.stderr)
+        logging.error("File not found: %s", filename)
         sys.exit(1)
     except PermissionError:
-        print(f"[ERROR] Permission denied: {filename}", file=sys.stderr)
+        logging.error("Permission denied: %s", filename)
         sys.exit(1)
 
 
@@ -39,12 +61,13 @@ def clean_data(lines: list) -> list:
 
 def validate_line(line: str) -> bool:
     """Return True if line follows a valid email:password format."""
+    logging.debug("Starting regex check on line: %s", line)
     pattern = r"^[^@\s:]+@[^@\s:]+\.[^@\s:]+:[^:\s]+$"
     return re.fullmatch(pattern, line) is not None
 
 
 def main() -> None:
-    """Parse command-line arguments and start BreachCheck."""
+    """Parse command-line arguments and run BreachCheck."""
     parser = argparse.ArgumentParser(
         description="Analyze leaked credentials for weak passwords."
     )
@@ -73,9 +96,15 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    print("BreachCheck v1.0 startup...")
+    setup_logging()
+
+    logging.info("Processing file: %s", args.file)
+
     lines = read_file(args.file)
-    clean_data(lines)
+    clean_lines = clean_data(lines)
+
+    for line in clean_lines:
+        validate_line(line)
 
 
 if __name__ == "__main__":
