@@ -28,6 +28,18 @@ IP_PATTERN = re.compile(
     r'\b\d{1,3}(?:\.\d{1,3}){3}\b'
 )
 
+SQLI_PATTERN = re.compile(
+    r"(?:union\s+select|"
+    r"select\s+.+\s+from|"
+    r"or\s+['\"]?\d+['\"]?\s*=\s*['\"]?\d+|"
+    r"drop\s+table|"
+    r"insert\s+into|"
+    r"delete\s+from|"
+    r"--|"
+    r";)",
+    re.IGNORECASE
+)
+
 GEOIP_DB = {
     "1.2.3.4": "US",
     "5.6.7.8": "RU"
@@ -191,6 +203,11 @@ def check_threat_intel(log_entry: LogEntry) -> LogEntry:
 
     return log_entry
 
+def detect_sqli(log_entry: LogEntry) -> bool:
+    """Return True when an HTTP path contains a SQL injection pattern."""
+    path = getattr(log_entry, "path", "")
+
+    return SQLI_PATTERN.search(path) is not None
 
 def main() -> None:
     """Parse, normalize, enrich, and analyze log entries."""
