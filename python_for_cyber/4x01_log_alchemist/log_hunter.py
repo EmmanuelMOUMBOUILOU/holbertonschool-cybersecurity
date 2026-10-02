@@ -55,7 +55,8 @@ class LogEntry:
         path: str = "",
         status=None,
         size=None,
-        user_agent: str = ""
+        user_agent: str = "",
+        source: str = ""
     ) -> None:
         """Initialize a normalized log entry."""
         self.ip = ip
@@ -68,6 +69,7 @@ class LogEntry:
         self.status = status
         self.size = size
         self.user_agent = user_agent
+        self.source = source
 
 
 def read_stream(file_path: str):
@@ -122,7 +124,8 @@ def normalize_entry(
             path=parsed_dict.get("path", ""),
             status=status,
             size=parsed_dict.get("size"),
-            user_agent=parsed_dict.get("user_agent") or ""
+            user_agent=parsed_dict.get("user_agent") or "",
+            source="apache"
         )
 
     if log_type == "syslog":
@@ -135,10 +138,14 @@ def normalize_entry(
             timestamp=parsed_dict.get("date", ""),
             service="ssh",
             message=message,
-            raw_line=raw_line
+            raw_line=raw_line,
+            source="syslog"
         )
 
-    return LogEntry(raw_line=raw_line)
+    return LogEntry(
+        raw_line=raw_line,
+        source=log_type
+    )
 
 
 def filter_logs(stream, status_codes=[404, 500]):
