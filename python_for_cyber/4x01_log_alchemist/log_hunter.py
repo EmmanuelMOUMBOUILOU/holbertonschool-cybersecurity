@@ -30,7 +30,10 @@ IP_PATTERN = re.compile(
 
 SQLI_PATTERNS = [
     re.compile(r"union\s+select", re.IGNORECASE),
-    re.compile(r"or\s+['\"]?1['\"]?\s*=\s*['\"]?1", re.IGNORECASE),
+    re.compile(
+        r"or\s+['\"]?1['\"]?\s*=\s*['\"]?1",
+        re.IGNORECASE
+    ),
     re.compile(r"drop\s+table", re.IGNORECASE),
 ]
 
@@ -87,6 +90,7 @@ class LogEntry:
         self.size = size
         self.user_agent = user_agent
         self.source = source
+        self.attack_type = None
 
 
 def read_stream(file_path: str):
@@ -217,8 +221,8 @@ def detect_sqli(log_entry: LogEntry) -> LogEntry:
 
 
 def detect_xss(log_entry: LogEntry) -> LogEntry:
-    """Detect XSS signatures without overwriting an SQLi alert."""
-    if getattr(log_entry, "attack_type", None) == "SQLi":
+    """Detect XSS without overwriting an existing attack type."""
+    if getattr(log_entry, "attack_type", None) is not None:
         return log_entry
 
     path = getattr(log_entry, "path", "")
@@ -287,9 +291,9 @@ def main() -> None:
             detect_sqli(entry)
             detect_xss(entry)
 
-            if getattr(entry, "attack_type", None) == "SQLi":
+            if entry.attack_type == "SQLi":
                 sqli_count += 1
-            elif getattr(entry, "attack_type", None) == "XSS":
+            elif entry.attack_type == "XSS":
                 xss_count += 1
 
             continue
