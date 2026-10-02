@@ -6,7 +6,7 @@ import configparser
 import logging
 import sys
 
-from utils import clean_data, hash_password, validate_line
+from utils import clean_data, hash_password, read_file, validate_line
 
 
 def setup_logging() -> None:
@@ -28,19 +28,6 @@ def setup_logging() -> None:
 
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
-
-
-def read_file(filename: str) -> list:
-    """Read a file and return its lines as a list of strings."""
-    try:
-        with open(filename, "r", encoding="utf-8") as file:
-            return file.readlines()
-    except FileNotFoundError:
-        logging.error("File not found: %s", filename)
-        sys.exit(1)
-    except PermissionError:
-        logging.error("Permission denied: %s", filename)
-        sys.exit(1)
 
 
 def load_config(filename: str = "config.ini") -> configparser.ConfigParser:
