@@ -28,6 +28,11 @@ IP_PATTERN = re.compile(
     r'\b\d{1,3}(?:\.\d{1,3}){3}\b'
 )
 
+GEOIP_DB = {
+    "1.2.3.4": "US",
+    "5.6.7.8": "RU"
+}
+
 
 class LogEntry:
     """Represent a normalized security log entry."""
@@ -134,8 +139,14 @@ def filter_logs(stream, status_codes=[404, 500]):
             yield entry
 
 
+def enrich_ip(log_entry: LogEntry) -> LogEntry:
+    """Add GeoIP country information to a normalized log entry."""
+    log_entry.country = GEOIP_DB.get(log_entry.ip, "UNKNOWN")
+    return log_entry
+
+
 def main() -> None:
-    """Parse, normalize, filter, and summarize log entries."""
+    """Parse, normalize, filter, enrich, and summarize log entries."""
     parser = argparse.ArgumentParser()
     parser.add_argument("file", help="Path to the log file")
     args = parser.parse_args()
@@ -146,6 +157,8 @@ def main() -> None:
     apache_count = 0
     syslog_count = 0
     suspicious_count = 0
+    enriched_count = 0
+    known_ip_count = 0
     sample_entry = None
 
     for line in read_stream(args.file):
@@ -165,6 +178,12 @@ def main() -> None:
             for _ in filter_logs((entry,)):
                 suspicious_count += 1
 
+            enrich_ip(entry)
+            enriched_count += 1
+
+            if entry.country != "UNKNOWN":
+                known_ip_count += 1
+
             continue
 
         syslog_data = parse_syslog_line(line)
@@ -182,6 +201,12 @@ def main() -> None:
 
             for _ in filter_logs((entry,)):
                 suspicious_count += 1
+
+            enrich_ip(entry)
+            enriched_count += 1
+
+            if entry.country != "UNKNOWN":
+                known_ip_count += 1
 
     if apache_count == 0 and syslog_count == 0:
         print("[!] No data to process. Exiting.")
@@ -213,6 +238,12 @@ def main() -> None:
 
     print("--- Filtering ---")
     print(f"[*] Suspicious (404, 500): {suspicious_count}")
+
+    print("--- Enrichment ---")
+    print(
+        f"[*] GeoIP: {enriched_count} entries enriched "
+        f"({known_ip_count} known IPs)"
+    )
 
 
 if __name__ == "__main__":
