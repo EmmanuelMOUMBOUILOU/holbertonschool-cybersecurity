@@ -261,6 +261,13 @@ def detect_xss(log_entry: LogEntry) -> LogEntry:
     return log_entry
 
 
+def iter_detected_entries(file_path: str):
+    """Yield normalized entries after SQL injection detection."""
+    for entry in iter_normalized_entries(file_path):
+        detect_sqli(entry)
+        yield entry
+
+
 def detect_bruteforce(entries):
     """Yield brute-force alerts for IPs with more than five failures."""
     failure_counts = Counter()
@@ -349,6 +356,32 @@ def detect_burst(
                 "alert_type": "BURST"
             }
             alerted_ips.add(ip)
+
+
+def correlate_events(entries):
+    """Correlate scanning and SQL injection behavior by IP."""
+    states = defaultdict(set)
+
+    for entry in entries:
+        ip = getattr(entry, "ip", "")
+
+        if not ip:
+            continue
+
+        if str(getattr(entry, "status", None)) == "404":
+            states[ip].add("scanner")
+
+        if getattr(entry, "attack_type", None) == "SQLi":
+            states[ip].add("sqli")
+
+        if "scanner" in states[ip] and "sqli" in states[ip]:
+            yield {
+                "ip": ip,
+                "stages": ["scanner", "sqli"],
+                "alert_type": "CRITICAL INCIDENT"
+            }
+
+            states[ip].clear()
 
 
 def main() -> None:
@@ -467,6 +500,12 @@ def main() -> None:
         )
     )
 
+    correlation_alerts = list(
+        correlate_events(
+            iter_detected_entries(args.file)
+        )
+    )
+
     total_parsed = apache_count + syslog_count
 
     print("--- Parsing ---")
@@ -535,6 +574,15 @@ def main() -> None:
             f"    {alert['ip']}: "
             f"{alert['count']} requests in "
             f"{alert['window']}s window"
+        )
+
+    print("--- Correlation ---")
+    print("[*] CRITICAL INCIDENTS:")
+
+    for alert in correlation_alerts:
+        print(
+            f"    {alert['ip']}: "
+            f"{' -> '.join(alert['stages'])}"
         )
 
 
