@@ -3,6 +3,7 @@
 
 import argparse
 import re
+from collections import Counter
 
 
 APACHE_PATTERN = re.compile(
@@ -236,6 +237,30 @@ def detect_xss(log_entry: LogEntry) -> LogEntry:
     return log_entry
 
 
+def detect_bruteforce(entries):
+    """Yield brute-force alerts for IPs with more than five failures."""
+    failure_counts = Counter()
+
+    for entry in entries:
+        status = getattr(entry, "status", None)
+        message = getattr(entry, "message", "")
+        ip = getattr(entry, "ip", "")
+
+        if not ip:
+            continue
+
+        if status == 401 or "Failed password" in message:
+            failure_counts[ip] += 1
+
+    for ip, count in failure_counts.items():
+        if count > 5:
+            yield {
+                "ip": ip,
+                "count": count,
+                "alert_type": "BRUTE_FORCE"
+            }
+
+
 def main() -> None:
     """Parse, enrich, and analyze log entries."""
     parser = argparse.ArgumentParser()
@@ -255,6 +280,7 @@ def main() -> None:
     sqli_count = 0
     xss_count = 0
     sample_entry = None
+    authentication_failures = []
 
     for line in read_stream(args.file):
         apache_data = parse_apache_line(line)
@@ -297,6 +323,9 @@ def main() -> None:
             elif entry.attack_type == "XSS":
                 xss_count += 1
 
+            if entry.status == 401:
+                authentication_failures.append(entry)
+
             continue
 
         syslog_data = parse_syslog_line(line)
@@ -331,9 +360,16 @@ def main() -> None:
             if entry.alert_level == "HIGH":
                 high_alert_count += 1
 
+            if "Failed password" in entry.message:
+                authentication_failures.append(entry)
+
     if apache_count == 0 and syslog_count == 0:
         print("[!] No data to process. Exiting.")
         return
+
+    brute_force_alerts = list(
+        detect_bruteforce(authentication_failures)
+    )
 
     total_parsed = apache_count + syslog_count
 
@@ -378,6 +414,22 @@ def main() -> None:
     print("--- Attack Detection ---")
     print(f"[*] SQLi attempts: {sqli_count}")
     print(f"[*] XSS attempts:  {xss_count}")
+
+    print("--- Brute Force ---")
+    print(
+        f"[*] BRUTE_FORCE alerts: "
+        f"{len(brute_force_alerts)}"
+    )
+
+    for alert in sorted(
+        brute_force_alerts,
+        key=lambda item: item["count"],
+        reverse=True
+    ):
+        print(
+            f"    {alert['ip']}: "
+            f"{alert['count']} failures"
+        )
 
 
 if __name__ == "__main__":
