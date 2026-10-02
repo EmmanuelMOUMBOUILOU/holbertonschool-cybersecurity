@@ -66,6 +66,22 @@ def validate_line(line: str) -> bool:
     return re.fullmatch(pattern, line) is not None
 
 
+def check_policy(password: str) -> str:
+    """Return WEAK or COMPLIANT according to password policy."""
+    common_passwords = {"password", "123456"}
+
+    if len(password) < 8:
+        return "WEAK"
+
+    if password.isalpha():
+        return "WEAK"
+
+    if password in common_passwords:
+        return "WEAK"
+
+    return "COMPLIANT"
+
+
 def main() -> None:
     """Parse command-line arguments and run BreachCheck."""
     parser = argparse.ArgumentParser(
