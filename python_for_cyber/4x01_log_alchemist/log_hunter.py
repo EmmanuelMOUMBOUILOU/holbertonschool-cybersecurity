@@ -15,6 +15,14 @@ APACHE_PATTERN = re.compile(
     r'(?P<size>\d+|-)'
 )
 
+SYSLOG_PATTERN = re.compile(
+    r'^(?P<date>[A-Z][a-z]{2}\s+\d{1,2}\s+'
+    r'\d{2}:\d{2}:\d{2})\s+'
+    r'(?P<host>\S+)\s+'
+    r'(?P<process>[^:]+):\s*'
+    r'(?P<message>.*)$'
+)
+
 
 def read_stream(file_path: str):
     """Yield one line at a time from a log file."""
@@ -36,8 +44,18 @@ def parse_apache_line(line: str) -> dict:
     return match.groupdict()
 
 
+def parse_syslog_line(line: str) -> dict:
+    """Parse a Syslog line and return its extracted fields."""
+    match = SYSLOG_PATTERN.search(line)
+
+    if match is None:
+        return None
+
+    return match.groupdict()
+
+
 def main() -> None:
-    """Parse arguments and analyze Apache log lines."""
+    """Parse arguments and analyze Apache and Syslog lines."""
     parser = argparse.ArgumentParser()
     parser.add_argument("file", help="Path to the log file")
     args = parser.parse_args()
@@ -49,10 +67,16 @@ def main() -> None:
     syslog_count = 0
 
     for line in read_stream(args.file):
-        parsed = parse_apache_line(line)
+        apache_data = parse_apache_line(line)
 
-        if parsed is not None:
+        if apache_data is not None:
             apache_count += 1
+            continue
+
+        syslog_data = parse_syslog_line(line)
+
+        if syslog_data is not None:
+            syslog_count += 1
 
     if apache_count == 0 and syslog_count == 0:
         print("[!] No data to process. Exiting.")
