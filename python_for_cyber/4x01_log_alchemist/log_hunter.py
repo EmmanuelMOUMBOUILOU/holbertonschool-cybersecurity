@@ -40,6 +40,11 @@ BOT_SIGNATURES = (
     "python"
 )
 
+BLACKLIST = {
+    "10.0.0.1",
+    "192.168.1.66"
+}
+
 
 class LogEntry:
     """Represent a normalized security log entry."""
@@ -177,8 +182,18 @@ def analyze_user_agent(log_entry: LogEntry) -> LogEntry:
     return log_entry
 
 
+def check_threat_intel(log_entry: LogEntry) -> LogEntry:
+    """Set the alert level based on the IP blacklist."""
+    if log_entry.ip in BLACKLIST:
+        log_entry.alert_level = "HIGH"
+    else:
+        log_entry.alert_level = "LOW"
+
+    return log_entry
+
+
 def main() -> None:
-    """Parse, normalize, enrich, and summarize log entries."""
+    """Parse, normalize, enrich, and analyze log entries."""
     parser = argparse.ArgumentParser()
     parser.add_argument("file", help="Path to the log file")
     args = parser.parse_args()
@@ -192,6 +207,7 @@ def main() -> None:
     enriched_count = 0
     known_ip_count = 0
     bot_count = 0
+    high_alert_count = 0
     sample_entry = None
 
     for line in read_stream(args.file):
@@ -222,6 +238,11 @@ def main() -> None:
             if entry.is_bot:
                 bot_count += 1
 
+            check_threat_intel(entry)
+
+            if entry.alert_level == "HIGH":
+                high_alert_count += 1
+
             continue
 
         syslog_data = parse_syslog_line(line)
@@ -250,6 +271,11 @@ def main() -> None:
 
             if entry.is_bot:
                 bot_count += 1
+
+            check_threat_intel(entry)
+
+            if entry.alert_level == "HIGH":
+                high_alert_count += 1
 
     if apache_count == 0 and syslog_count == 0:
         print("[!] No data to process. Exiting.")
@@ -288,6 +314,12 @@ def main() -> None:
         f"({known_ip_count} known IPs)"
     )
     print(f"[*] Bots detected: {bot_count}")
+
+    print("--- Threat Intelligence ---")
+    print(
+        f"[*] HIGH alerts: {high_alert_count} "
+        "entries from blacklisted IPs"
+    )
 
 
 if __name__ == "__main__":
