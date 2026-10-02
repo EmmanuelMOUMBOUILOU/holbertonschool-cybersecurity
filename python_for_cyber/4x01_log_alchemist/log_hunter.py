@@ -46,11 +46,15 @@ class LogEntry:
 
     def __init__(
         self,
-        ip: str,
-        timestamp: str,
-        service: str,
-        message: str,
-        raw_line: str
+        ip: str = "",
+        timestamp: str = "",
+        service: str = "",
+        message: str = "",
+        raw_line: str = "",
+        method: str = "",
+        path: str = "",
+        status=None,
+        user_agent: str = ""
     ) -> None:
         """Initialize a normalized log entry."""
         self.ip = ip
@@ -58,6 +62,10 @@ class LogEntry:
         self.service = service
         self.message = message
         self.raw_line = raw_line
+        self.method = method
+        self.path = path
+        self.status = status
+        self.user_agent = user_agent
 
 
 def read_stream(file_path: str):
@@ -97,25 +105,22 @@ def normalize_entry(
 ) -> LogEntry:
     """Normalize parsed Apache or Syslog data into a LogEntry."""
     if log_type == "apache":
-        entry = LogEntry(
+        try:
+            status = int(parsed_dict.get("status", 0))
+        except (TypeError, ValueError):
+            status = 0
+
+        return LogEntry(
             ip=parsed_dict.get("ip", ""),
             timestamp=parsed_dict.get("date", ""),
             service="http",
             message=parsed_dict.get("path", ""),
-            raw_line=raw_line
+            raw_line=raw_line,
+            method=parsed_dict.get("method", ""),
+            path=parsed_dict.get("path", ""),
+            status=status,
+            user_agent=parsed_dict.get("user_agent") or ""
         )
-
-        entry.method = parsed_dict.get("method", "")
-        entry.path = parsed_dict.get("path", "")
-
-        try:
-            entry.status = int(parsed_dict.get("status", 0))
-        except (TypeError, ValueError):
-            entry.status = 0
-
-        entry.user_agent = parsed_dict.get("user_agent") or ""
-
-        return entry
 
     if log_type == "syslog":
         message = parsed_dict.get("message", "")
@@ -130,13 +135,7 @@ def normalize_entry(
             raw_line=raw_line
         )
 
-    return LogEntry(
-        ip="",
-        timestamp="",
-        service="",
-        message="",
-        raw_line=raw_line
-    )
+    return LogEntry(raw_line=raw_line)
 
 
 def filter_logs(stream, status_codes=[404, 500]):
