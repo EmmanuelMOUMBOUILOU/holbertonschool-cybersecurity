@@ -41,6 +41,7 @@ XSS_PATTERNS = [
     re.compile(r"<script", re.IGNORECASE),
     re.compile(r"javascript:", re.IGNORECASE),
     re.compile(r"onload\s*=", re.IGNORECASE),
+    re.compile(r"onerror\s*=", re.IGNORECASE),
 ]
 
 GEOIP_DB = {
