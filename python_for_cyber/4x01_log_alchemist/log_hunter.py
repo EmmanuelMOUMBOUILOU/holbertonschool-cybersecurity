@@ -3,7 +3,8 @@
 
 import argparse
 import re
-from collections import Counter
+from collections import Counter, defaultdict, deque
+from datetime import datetime
 
 
 APACHE_PATTERN = re.compile(
@@ -171,6 +172,29 @@ def normalize_entry(
     )
 
 
+def iter_normalized_entries(file_path: str):
+    """Yield normalized Apache and Syslog entries from a file."""
+    for line in read_stream(file_path):
+        apache_data = parse_apache_line(line)
+
+        if apache_data is not None:
+            yield normalize_entry(
+                apache_data,
+                "apache",
+                line.rstrip("\n")
+            )
+            continue
+
+        syslog_data = parse_syslog_line(line)
+
+        if syslog_data is not None:
+            yield normalize_entry(
+                syslog_data,
+                "syslog",
+                line.rstrip("\n")
+            )
+
+
 def filter_logs(stream, status_codes=[404, 500]):
     """Yield entries whose HTTP status matches the requested codes."""
     for entry in stream:
@@ -259,6 +283,72 @@ def detect_bruteforce(entries):
                 "count": count,
                 "alert_type": "BRUTE_FORCE"
             }
+
+
+def parse_timestamp(timestamp: str):
+    """Parse Apache or Syslog timestamps into datetime objects."""
+    try:
+        parsed = datetime.strptime(
+            timestamp,
+            "%d/%b/%Y:%H:%M:%S %z"
+        )
+        return parsed.replace(tzinfo=None)
+    except ValueError:
+        pass
+
+    try:
+        return datetime.strptime(
+            timestamp,
+            "%b %d %H:%M:%S"
+        )
+    except ValueError:
+        return None
+
+
+def detect_burst(
+    entries,
+    window_seconds=60,
+    threshold=10
+):
+    """Yield burst alerts using a sliding time window per IP."""
+    windows = defaultdict(deque)
+    alerted_ips = set()
+
+    for entry in entries:
+        ip = getattr(entry, "ip", "")
+        timestamp = getattr(entry, "timestamp", "")
+
+        if not ip or not timestamp:
+            continue
+
+        event_time = parse_timestamp(timestamp)
+
+        if event_time is None:
+            continue
+
+        ip_window = windows[ip]
+
+        while ip_window:
+            age = (event_time - ip_window[0]).total_seconds()
+
+            if age <= window_seconds:
+                break
+
+            ip_window.popleft()
+
+        ip_window.append(event_time)
+
+        if (
+            len(ip_window) >= threshold
+            and ip not in alerted_ips
+        ):
+            yield {
+                "ip": ip,
+                "count": len(ip_window),
+                "window": window_seconds,
+                "alert_type": "BURST"
+            }
+            alerted_ips.add(ip)
 
 
 def main() -> None:
@@ -371,6 +461,12 @@ def main() -> None:
         detect_bruteforce(authentication_failures)
     )
 
+    burst_alerts = list(
+        detect_burst(
+            iter_normalized_entries(args.file)
+        )
+    )
+
     total_parsed = apache_count + syslog_count
 
     print("--- Parsing ---")
@@ -429,6 +525,16 @@ def main() -> None:
         print(
             f"    {alert['ip']}: "
             f"{alert['count']} failures"
+        )
+
+    print("--- Burst Detection ---")
+    print(f"[*] BURST alerts: {len(burst_alerts)}")
+
+    for alert in burst_alerts:
+        print(
+            f"    {alert['ip']}: "
+            f"{alert['count']} requests in "
+            f"{alert['window']}s window"
         )
 
 
