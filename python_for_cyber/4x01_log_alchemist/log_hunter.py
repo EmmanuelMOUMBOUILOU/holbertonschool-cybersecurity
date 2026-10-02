@@ -33,6 +33,13 @@ GEOIP_DB = {
     "5.6.7.8": "RU"
 }
 
+BOT_SIGNATURES = (
+    "sqlmap",
+    "nikto",
+    "curl",
+    "python"
+)
+
 
 class LogEntry:
     """Represent a normalized security log entry."""
@@ -145,8 +152,24 @@ def enrich_ip(log_entry: LogEntry) -> LogEntry:
     return log_entry
 
 
+def analyze_user_agent(log_entry: LogEntry) -> LogEntry:
+    """Detect known automated tool signatures in a log entry."""
+    user_agent = getattr(log_entry, "user_agent", "")
+    message = getattr(log_entry, "message", "")
+    raw_line = getattr(log_entry, "raw_line", "")
+
+    searchable_text = f"{user_agent} {message} {raw_line}".lower()
+
+    log_entry.is_bot = any(
+        signature in searchable_text
+        for signature in BOT_SIGNATURES
+    )
+
+    return log_entry
+
+
 def main() -> None:
-    """Parse, normalize, filter, enrich, and summarize log entries."""
+    """Parse, normalize, enrich, and summarize log entries."""
     parser = argparse.ArgumentParser()
     parser.add_argument("file", help="Path to the log file")
     args = parser.parse_args()
@@ -159,6 +182,7 @@ def main() -> None:
     suspicious_count = 0
     enriched_count = 0
     known_ip_count = 0
+    bot_count = 0
     sample_entry = None
 
     for line in read_stream(args.file):
@@ -184,6 +208,11 @@ def main() -> None:
             if entry.country != "UNKNOWN":
                 known_ip_count += 1
 
+            analyze_user_agent(entry)
+
+            if entry.is_bot:
+                bot_count += 1
+
             continue
 
         syslog_data = parse_syslog_line(line)
@@ -207,6 +236,11 @@ def main() -> None:
 
             if entry.country != "UNKNOWN":
                 known_ip_count += 1
+
+            analyze_user_agent(entry)
+
+            if entry.is_bot:
+                bot_count += 1
 
     if apache_count == 0 and syslog_count == 0:
         print("[!] No data to process. Exiting.")
@@ -244,6 +278,7 @@ def main() -> None:
         f"[*] GeoIP: {enriched_count} entries enriched "
         f"({known_ip_count} known IPs)"
     )
+    print(f"[*] Bots detected: {bot_count}")
 
 
 if __name__ == "__main__":
