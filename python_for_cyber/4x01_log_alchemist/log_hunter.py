@@ -127,8 +127,15 @@ def normalize_entry(
     )
 
 
+def filter_logs(stream, status_codes=[404, 500]):
+    """Yield entries whose HTTP status matches the requested codes."""
+    for entry in stream:
+        if getattr(entry, "status", None) in status_codes:
+            yield entry
+
+
 def main() -> None:
-    """Parse, normalize, and summarize Apache and Syslog lines."""
+    """Parse, normalize, filter, and summarize log entries."""
     parser = argparse.ArgumentParser()
     parser.add_argument("file", help="Path to the log file")
     args = parser.parse_args()
@@ -138,6 +145,7 @@ def main() -> None:
 
     apache_count = 0
     syslog_count = 0
+    suspicious_count = 0
     sample_entry = None
 
     for line in read_stream(args.file):
@@ -154,6 +162,9 @@ def main() -> None:
             if sample_entry is None:
                 sample_entry = entry
 
+            for _ in filter_logs((entry,)):
+                suspicious_count += 1
+
             continue
 
         syslog_data = parse_syslog_line(line)
@@ -168,6 +179,9 @@ def main() -> None:
 
             if sample_entry is None:
                 sample_entry = entry
+
+            for _ in filter_logs((entry,)):
+                suspicious_count += 1
 
     if apache_count == 0 and syslog_count == 0:
         print("[!] No data to process. Exiting.")
@@ -196,6 +210,9 @@ def main() -> None:
                 f"service={sample_entry.service} | "
                 f"message={sample_entry.message}"
             )
+
+    print("--- Filtering ---")
+    print(f"[*] Suspicious (404, 500): {suspicious_count}")
 
 
 if __name__ == "__main__":
