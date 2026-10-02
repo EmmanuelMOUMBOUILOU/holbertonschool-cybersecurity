@@ -4,6 +4,21 @@
 import hashlib
 import logging
 import re
+import sys
+
+
+def read_file(filename: str):
+    """Yield file lines one at a time to minimize memory usage."""
+    try:
+        with open(filename, "r", encoding="utf-8") as file:
+            for line in file:
+                yield line
+    except FileNotFoundError:
+        logging.error("File not found: %s", filename)
+        sys.exit(1)
+    except PermissionError:
+        logging.error("Permission denied: %s", filename)
+        sys.exit(1)
 
 
 def clean_data(lines: list) -> list:
