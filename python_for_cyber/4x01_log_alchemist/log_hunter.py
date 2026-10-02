@@ -28,6 +28,18 @@ IP_PATTERN = re.compile(
     r'\b\d{1,3}(?:\.\d{1,3}){3}\b'
 )
 
+SQLI_PATTERNS = [
+    re.compile(r"union\s+select", re.IGNORECASE),
+    re.compile(r"or\s+['\"]?1['\"]?\s*=\s*['\"]?1", re.IGNORECASE),
+    re.compile(r"drop\s+table", re.IGNORECASE),
+]
+
+XSS_PATTERNS = [
+    re.compile(r"<script", re.IGNORECASE),
+    re.compile(r"javascript:", re.IGNORECASE),
+    re.compile(r"onload\s*=", re.IGNORECASE),
+]
+
 GEOIP_DB = {
     "1.2.3.4": "US",
     "5.6.7.8": "RU"
@@ -192,8 +204,35 @@ def check_threat_intel(log_entry: LogEntry) -> LogEntry:
     return log_entry
 
 
+def detect_sqli(log_entry: LogEntry) -> LogEntry:
+    """Detect SQL injection signatures in the request path."""
+    path = getattr(log_entry, "path", "")
+
+    for pattern in SQLI_PATTERNS:
+        if pattern.search(path):
+            log_entry.attack_type = "SQLi"
+            break
+
+    return log_entry
+
+
+def detect_xss(log_entry: LogEntry) -> LogEntry:
+    """Detect XSS signatures without overwriting an SQLi alert."""
+    if getattr(log_entry, "attack_type", None) == "SQLi":
+        return log_entry
+
+    path = getattr(log_entry, "path", "")
+
+    for pattern in XSS_PATTERNS:
+        if pattern.search(path):
+            log_entry.attack_type = "XSS"
+            break
+
+    return log_entry
+
+
 def main() -> None:
-    """Parse, normalize, enrich, and analyze log entries."""
+    """Parse, enrich, and analyze log entries."""
     parser = argparse.ArgumentParser()
     parser.add_argument("file", help="Path to the log file")
     args = parser.parse_args()
@@ -208,6 +247,8 @@ def main() -> None:
     known_ip_count = 0
     bot_count = 0
     high_alert_count = 0
+    sqli_count = 0
+    xss_count = 0
     sample_entry = None
 
     for line in read_stream(args.file):
@@ -242,6 +283,14 @@ def main() -> None:
 
             if entry.alert_level == "HIGH":
                 high_alert_count += 1
+
+            detect_sqli(entry)
+            detect_xss(entry)
+
+            if getattr(entry, "attack_type", None) == "SQLi":
+                sqli_count += 1
+            elif getattr(entry, "attack_type", None) == "XSS":
+                xss_count += 1
 
             continue
 
@@ -320,6 +369,10 @@ def main() -> None:
         f"[*] HIGH alerts: {high_alert_count} "
         "entries from blacklisted IPs"
     )
+
+    print("--- Attack Detection ---")
+    print(f"[*] SQLi attempts: {sqli_count}")
+    print(f"[*] XSS attempts:  {xss_count}")
 
 
 if __name__ == "__main__":
