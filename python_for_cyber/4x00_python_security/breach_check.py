@@ -73,7 +73,7 @@ def load_config(filename: str = "config.ini") -> configparser.ConfigParser:
     config = configparser.ConfigParser()
 
     if not config.read(filename):
-        logging.error("Config file missing")
+        logging.error("config file missing")
         sys.exit(1)
 
     return config
