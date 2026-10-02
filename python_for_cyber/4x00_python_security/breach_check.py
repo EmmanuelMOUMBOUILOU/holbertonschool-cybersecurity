@@ -5,6 +5,7 @@ import argparse
 import logging
 import re
 import sys
+import hashlib
 
 
 def setup_logging() -> None:
@@ -80,6 +81,12 @@ def check_policy(password: str) -> str:
         return "WEAK"
 
     return "COMPLIANT"
+
+
+def hash_password(password: str, salt: str) -> str:
+    """Return the SHA-256 hash of a password combined with a salt."""
+    salted_password = (password + salt).encode("utf-8")
+    return hashlib.sha256(salted_password).hexdigest()
 
 
 def main() -> None:
