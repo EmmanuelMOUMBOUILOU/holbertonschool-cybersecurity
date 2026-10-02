@@ -13,6 +13,7 @@ APACHE_PATTERN = re.compile(
     r'(?:\s+HTTP/\d(?:\.\d+)?)?"\s+'
     r'(?P<status>\d{3})\s+'
     r'(?P<size>\d+|-)'
+    r'(?:\s+"[^"]*"\s+"(?P<user_agent>[^"]*)")?'
 )
 
 SYSLOG_PATTERN = re.compile(
@@ -22,6 +23,29 @@ SYSLOG_PATTERN = re.compile(
     r'(?P<process>[^:]+):\s*'
     r'(?P<message>.*)$'
 )
+
+IP_PATTERN = re.compile(
+    r'\b\d{1,3}(?:\.\d{1,3}){3}\b'
+)
+
+
+class LogEntry:
+    """Represent a normalized security log entry."""
+
+    def __init__(
+        self,
+        ip: str,
+        timestamp: str,
+        service: str,
+        message: str,
+        raw_line: str
+    ) -> None:
+        """Initialize a normalized log entry."""
+        self.ip = ip
+        self.timestamp = timestamp
+        self.service = service
+        self.message = message
+        self.raw_line = raw_line
 
 
 def read_stream(file_path: str):
@@ -54,8 +78,57 @@ def parse_syslog_line(line: str) -> dict:
     return match.groupdict()
 
 
+def normalize_entry(
+    parsed_dict: dict,
+    log_type: str,
+    raw_line: str = ""
+) -> LogEntry:
+    """Normalize parsed Apache or Syslog data into a LogEntry."""
+    if log_type == "apache":
+        entry = LogEntry(
+            ip=parsed_dict.get("ip", ""),
+            timestamp=parsed_dict.get("date", ""),
+            service="http",
+            message=parsed_dict.get("path", ""),
+            raw_line=raw_line
+        )
+
+        entry.method = parsed_dict.get("method", "")
+        entry.path = parsed_dict.get("path", "")
+
+        try:
+            entry.status = int(parsed_dict.get("status", 0))
+        except (TypeError, ValueError):
+            entry.status = 0
+
+        entry.user_agent = parsed_dict.get("user_agent") or ""
+
+        return entry
+
+    if log_type == "syslog":
+        message = parsed_dict.get("message", "")
+        ip_match = IP_PATTERN.search(message)
+        source_ip = ip_match.group(0) if ip_match else ""
+
+        return LogEntry(
+            ip=source_ip,
+            timestamp=parsed_dict.get("date", ""),
+            service="ssh",
+            message=message,
+            raw_line=raw_line
+        )
+
+    return LogEntry(
+        ip="",
+        timestamp="",
+        service="",
+        message="",
+        raw_line=raw_line
+    )
+
+
 def main() -> None:
-    """Parse arguments and analyze Apache and Syslog lines."""
+    """Parse, normalize, and summarize Apache and Syslog lines."""
     parser = argparse.ArgumentParser()
     parser.add_argument("file", help="Path to the log file")
     args = parser.parse_args()
@@ -65,18 +138,36 @@ def main() -> None:
 
     apache_count = 0
     syslog_count = 0
+    sample_entry = None
 
     for line in read_stream(args.file):
         apache_data = parse_apache_line(line)
 
         if apache_data is not None:
             apache_count += 1
+            entry = normalize_entry(
+                apache_data,
+                "apache",
+                line.rstrip("\n")
+            )
+
+            if sample_entry is None:
+                sample_entry = entry
+
             continue
 
         syslog_data = parse_syslog_line(line)
 
         if syslog_data is not None:
             syslog_count += 1
+            entry = normalize_entry(
+                syslog_data,
+                "syslog",
+                line.rstrip("\n")
+            )
+
+            if sample_entry is None:
+                sample_entry = entry
 
     if apache_count == 0 and syslog_count == 0:
         print("[!] No data to process. Exiting.")
@@ -88,6 +179,23 @@ def main() -> None:
     print(f"[*] Apache lines:  {apache_count}")
     print(f"[*] Syslog lines:  {syslog_count}")
     print(f"[*] Total parsed:  {total_parsed}")
+
+    if sample_entry is not None:
+        print("[*] Sample entry:")
+
+        if sample_entry.service == "http":
+            print(
+                f"    ip={sample_entry.ip} | "
+                f"service={sample_entry.service} | "
+                f"status={sample_entry.status} | "
+                f"path={sample_entry.path}"
+            )
+        else:
+            print(
+                f"    ip={sample_entry.ip} | "
+                f"service={sample_entry.service} | "
+                f"message={sample_entry.message}"
+            )
 
 
 if __name__ == "__main__":
