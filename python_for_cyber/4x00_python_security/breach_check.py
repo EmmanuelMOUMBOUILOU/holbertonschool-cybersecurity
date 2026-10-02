@@ -3,10 +3,10 @@
 
 import argparse
 import configparser
-import hashlib
 import logging
-import re
 import sys
+
+from utils import clean_data, hash_password, validate_line
 
 
 def setup_logging() -> None:
@@ -43,31 +43,6 @@ def read_file(filename: str) -> list:
         sys.exit(1)
 
 
-def clean_data(lines: list) -> list:
-    """Clean raw input lines and return valid data entries."""
-    clean_lines = []
-
-    for line in lines:
-        line = line.strip()
-
-        if not line:
-            continue
-
-        if line.startswith("#"):
-            continue
-
-        clean_lines.append(line)
-
-    return clean_lines
-
-
-def validate_line(line: str) -> bool:
-    """Return True if line follows a valid email:password format."""
-    logging.debug("Starting regex check on line: %s", line)
-    pattern = r"^[^@\s:]+@[^@\s:]+\.[^@\s:]+:[^:\s]+$"
-    return re.fullmatch(pattern, line) is not None
-
-
 def load_config(filename: str = "config.ini") -> configparser.ConfigParser:
     """Load the security configuration or exit if it is missing."""
     config = configparser.ConfigParser()
@@ -93,12 +68,6 @@ def check_policy(password: str, min_length: int = 8) -> str:
         return "WEAK"
 
     return "COMPLIANT"
-
-
-def hash_password(password: str, salt: str) -> str:
-    """Return the SHA-256 hash of a password combined with a salt."""
-    salted_password = (password + salt).encode("utf-8")
-    return hashlib.sha256(salted_password).hexdigest()
 
 
 def main() -> None:
