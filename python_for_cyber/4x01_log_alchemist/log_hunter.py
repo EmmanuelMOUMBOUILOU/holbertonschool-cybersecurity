@@ -3,10 +3,13 @@
 
 import argparse
 import json
+import multiprocessing
 import re
 from collections import Counter, defaultdict, deque
 from datetime import datetime
 
+
+PARALLEL_CHUNK_SIZE = 5000
 
 APACHE_PATTERN = re.compile(
     r'(?P<ip>\d{1,3}(?:\.\d{1,3}){3})'
@@ -197,7 +200,7 @@ def iter_normalized_entries(file_path: str):
 
 
 def filter_logs(stream, status_codes=[404, 500]):
-    """Yield entries whose HTTP status matches the requested codes."""
+    """Yield entries whose HTTP status matches requested codes."""
     for entry in stream:
         if getattr(entry, "status", None) in status_codes:
             yield entry
@@ -262,11 +265,124 @@ def detect_xss(log_entry: LogEntry) -> LogEntry:
     return log_entry
 
 
-def iter_detected_entries(file_path: str):
-    """Yield normalized entries after SQL injection detection."""
+def process_entry(log_entry: LogEntry) -> LogEntry:
+    """Enrich and detect threats on one normalized log entry."""
+    enrich_ip(log_entry)
+    analyze_user_agent(log_entry)
+    check_threat_intel(log_entry)
+    detect_sqli(log_entry)
+    detect_xss(log_entry)
+
+    return log_entry
+
+
+def iter_processed_entries(file_path: str):
+    """Yield fully processed entries sequentially."""
     for entry in iter_normalized_entries(file_path):
-        detect_sqli(entry)
-        yield entry
+        yield process_entry(entry)
+
+
+def process_chunk(lines):
+    """Parse, normalize, enrich, and detect a chunk of log lines."""
+    results = []
+
+    for line in lines:
+        apache_data = parse_apache_line(line)
+
+        if apache_data is not None:
+            entry = normalize_entry(
+                apache_data,
+                "apache",
+                line.rstrip("\n")
+            )
+
+            enrich_ip(entry)
+            analyze_user_agent(entry)
+            check_threat_intel(entry)
+            detect_sqli(entry)
+            detect_xss(entry)
+
+            results.append(entry)
+            continue
+
+        syslog_data = parse_syslog_line(line)
+
+        if syslog_data is not None:
+            entry = normalize_entry(
+                syslog_data,
+                "syslog",
+                line.rstrip("\n")
+            )
+
+            enrich_ip(entry)
+            analyze_user_agent(entry)
+            check_threat_intel(entry)
+            detect_sqli(entry)
+            detect_xss(entry)
+
+            results.append(entry)
+
+    return results
+
+
+def parallel_analyze(file_path, num_workers, chunk_size):
+    """Analyze a log file using multiprocessing workers."""
+    if num_workers <= 0:
+        return list(iter_processed_entries(file_path))
+
+    if chunk_size <= 0:
+        chunk_size = PARALLEL_CHUNK_SIZE
+
+    merged_results = []
+    pending_chunks = []
+    batch_size = max(num_workers * 2, 1)
+
+    try:
+        with multiprocessing.Pool(
+            processes=num_workers
+        ) as pool:
+            with open(
+                file_path,
+                "r",
+                encoding="utf-8"
+            ) as log_file:
+                chunk = []
+
+                for line in log_file:
+                    chunk.append(line)
+
+                    if len(chunk) >= chunk_size:
+                        pending_chunks.append(chunk)
+                        chunk = []
+
+                    if len(pending_chunks) >= batch_size:
+                        batch_results = pool.map(
+                            process_chunk,
+                            pending_chunks
+                        )
+
+                        for result in batch_results:
+                            merged_results.extend(result)
+
+                        pending_chunks = []
+
+                if chunk:
+                    pending_chunks.append(chunk)
+
+                if pending_chunks:
+                    batch_results = pool.map(
+                        process_chunk,
+                        pending_chunks
+                    )
+
+                    for result in batch_results:
+                        merged_results.extend(result)
+
+    except FileNotFoundError:
+        print(f"[ERROR] File not found: {file_path}")
+        return []
+
+    return merged_results
 
 
 def detect_bruteforce(entries):
@@ -412,20 +528,51 @@ def export_report(alerts, filename, format="json"):
 
 
 def main() -> None:
-    """Parse, enrich, analyze, correlate, and report log entries."""
+    """Parse, analyze, correlate, and report log entries."""
     parser = argparse.ArgumentParser()
+
     parser.add_argument(
         "file",
         help="Path to the log file"
     )
+
     parser.add_argument(
         "--report",
         help="Export alerts to a JSON report"
     )
+
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="Number of multiprocessing workers"
+    )
+
     args = parser.parse_args()
 
+    if args.workers < 0:
+        parser.error("--workers must be 0 or greater")
+
     print("[*] LogHunter - Log Analysis Engine")
-    print(f"[*] Reading: {args.file}")
+
+    if args.workers > 0:
+        print(
+            f"[*] Reading: {args.file} "
+            f"(parallel: {args.workers} workers)"
+        )
+
+        processed_entries = parallel_analyze(
+            args.file,
+            args.workers,
+            PARALLEL_CHUNK_SIZE
+        )
+
+        entries_source = processed_entries
+    else:
+        print(f"[*] Reading: {args.file}")
+
+        processed_entries = None
+        entries_source = iter_processed_entries(args.file)
 
     apache_count = 0
     syslog_count = 0
@@ -439,86 +586,45 @@ def main() -> None:
     sample_entry = None
     authentication_failures = []
 
-    for line in read_stream(args.file):
-        apache_data = parse_apache_line(line)
-
-        if apache_data is not None:
+    for entry in entries_source:
+        if entry.source == "apache":
             apache_count += 1
-            entry = normalize_entry(
-                apache_data,
-                "apache",
-                line.rstrip("\n")
-            )
-
-            if sample_entry is None:
-                sample_entry = entry
-
-            for _ in filter_logs((entry,)):
-                suspicious_count += 1
-
-            enrich_ip(entry)
-            enriched_count += 1
-
-            if entry.country != "UNKNOWN":
-                known_ip_count += 1
-
-            analyze_user_agent(entry)
-
-            if entry.is_bot:
-                bot_count += 1
-
-            check_threat_intel(entry)
-
-            if entry.alert_level == "HIGH":
-                high_alert_count += 1
-
-            detect_sqli(entry)
-            detect_xss(entry)
-
-            if entry.attack_type == "SQLi":
-                sqli_count += 1
-            elif entry.attack_type == "XSS":
-                xss_count += 1
-
-            if str(entry.status) == "401":
-                authentication_failures.append(entry)
-
-            continue
-
-        syslog_data = parse_syslog_line(line)
-
-        if syslog_data is not None:
+        elif entry.source == "syslog":
             syslog_count += 1
-            entry = normalize_entry(
-                syslog_data,
-                "syslog",
-                line.rstrip("\n")
-            )
 
-            if sample_entry is None:
-                sample_entry = entry
+        if sample_entry is None:
+            sample_entry = entry
 
-            for _ in filter_logs((entry,)):
-                suspicious_count += 1
+        if str(getattr(entry, "status", None)) in {
+            "404",
+            "500"
+        }:
+            suspicious_count += 1
 
-            enrich_ip(entry)
-            enriched_count += 1
+        enriched_count += 1
 
-            if entry.country != "UNKNOWN":
-                known_ip_count += 1
+        if getattr(entry, "country", "UNKNOWN") != "UNKNOWN":
+            known_ip_count += 1
 
-            analyze_user_agent(entry)
+        if getattr(entry, "is_bot", False):
+            bot_count += 1
 
-            if entry.is_bot:
-                bot_count += 1
+        if getattr(entry, "alert_level", "LOW") == "HIGH":
+            high_alert_count += 1
 
-            check_threat_intel(entry)
+        if getattr(entry, "attack_type", None) == "SQLi":
+            sqli_count += 1
+        elif getattr(entry, "attack_type", None) == "XSS":
+            xss_count += 1
 
-            if entry.alert_level == "HIGH":
-                high_alert_count += 1
+        status = getattr(entry, "status", None)
+        message = getattr(entry, "message", "")
 
-            if "Failed password" in entry.message:
-                authentication_failures.append(entry)
+        if (
+            str(status) == "401"
+            or "Failed password" in message
+        ):
+            authentication_failures.append(entry)
 
     if apache_count == 0 and syslog_count == 0:
         print("[!] No data to process. Exiting.")
@@ -534,16 +640,19 @@ def main() -> None:
         reverse=True
     )
 
+    if processed_entries is not None:
+        burst_source = processed_entries
+        correlation_source = processed_entries
+    else:
+        burst_source = iter_processed_entries(args.file)
+        correlation_source = iter_processed_entries(args.file)
+
     burst_alerts = list(
-        detect_burst(
-            iter_normalized_entries(args.file)
-        )
+        detect_burst(burst_source)
     )
 
     correlation_alerts = list(
-        correlate_events(
-            iter_detected_entries(args.file)
-        )
+        correlate_events(correlation_source)
     )
 
     all_alerts = (
@@ -577,7 +686,10 @@ def main() -> None:
             )
 
     print("--- Filtering ---")
-    print(f"[*] Suspicious (404, 500): {suspicious_count}")
+    print(
+        f"[*] Suspicious (404, 500): "
+        f"{suspicious_count}"
+    )
 
     print("--- Enrichment ---")
     print(
@@ -633,13 +745,17 @@ def main() -> None:
                 all_alerts,
                 args.report
             )
+
             print(
                 f"[*] Report exported: "
                 f"{args.report} "
                 f"({len(all_alerts)} alerts)"
             )
         except (OSError, TypeError, ValueError) as error:
-            print(f"[ERROR] Could not export report: {error}")
+            print(
+                f"[ERROR] Could not export report: "
+                f"{error}"
+            )
     else:
         print(f"[*] Total alerts: {len(all_alerts)}")
         print("[*] Use --report <file> to export.")
