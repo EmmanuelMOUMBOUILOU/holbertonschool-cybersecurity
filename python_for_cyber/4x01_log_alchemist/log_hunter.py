@@ -249,7 +249,7 @@ def detect_bruteforce(entries):
         if not ip:
             continue
 
-        if status == 401 or "Failed password" in message:
+        if str(status) == "401" or "Failed password" in message:
             failure_counts[ip] += 1
 
     for ip, count in failure_counts.items():
@@ -323,7 +323,7 @@ def main() -> None:
             elif entry.attack_type == "XSS":
                 xss_count += 1
 
-            if entry.status == 401:
+            if str(entry.status) == "401":
                 authentication_failures.append(entry)
 
             continue
