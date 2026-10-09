@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """NetProbe - network probing and service discovery tool."""
 
@@ -35,6 +36,26 @@ def check_port(ip: str, port: int) -> bool:
             sock.settimeout(1)
             sock.connect((ip, port))
             return True
+    except (OSError, ValueError, OverflowError):
+        return False
+
+
+def scan_udp(ip: str, port: int) -> bool:
+    """Return True for UDP response or timeout (open/filtered)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(1)
+            sock.connect((ip, port))
+            sock.send(b"")
+
+            try:
+                sock.recv(1024)
+                return True
+            except socket.timeout:
+                return True
+            except ConnectionRefusedError:
+                return False
+
     except (OSError, ValueError, OverflowError):
         return False
 
