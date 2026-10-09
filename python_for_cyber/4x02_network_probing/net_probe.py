@@ -111,7 +111,7 @@ def scan_single_port(
     port: int,
     delay: float = 0.0
 ) -> Optional[dict]:
-    """Optionally wait, then return service details for an open port."""
+    """Scan one TCP port after an optional delay."""
     if delay > 0:
         print(f"[DEBUG] Sleeping {delay}s before next packet...")
         time.sleep(delay)
@@ -137,7 +137,7 @@ def scan_ports(
     end_port: int,
     delay: float = 0.0
 ) -> list:
-    """Scan ports with at most 50 workers and optional per-task delay."""
+    """Scan TCP ports concurrently and return sorted open services."""
     results = []
 
     print(f"Scanning {ip} from {start_port} to {end_port}...")
@@ -147,23 +147,14 @@ def scan_ports(
         return results
 
     if not math.isfinite(delay) or delay < 0:
-        print("[ERROR] Delay must be a finite non-negative number.")
+        print("[ERROR] Delay must be a non-negative finite number.")
         return results
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = []
-
-        for port in range(start_port, end_port + 1):
-            if delay > 0:
-                future = executor.submit(
-                    scan_single_port, ip, port, delay
-                )
-            else:
-                future = executor.submit(
-                    scan_single_port, ip, port
-                )
-
-            futures.append(future)
+        futures = [
+            executor.submit(scan_single_port, ip, port, delay)
+            for port in range(start_port, end_port + 1)
+        ]
 
         for future in as_completed(futures):
             try:
@@ -181,7 +172,6 @@ def scan_ports(
                 )
 
     results.sort(key=lambda entry: entry["port"])
-
     return results
 
 
@@ -224,8 +214,10 @@ def build_json_report(results: list) -> list:
 
 
 def main() -> None:
-    """Read CLI options, scan authorized targets, and export JSON."""
-    parser = argparse.ArgumentParser(description="NetProbe TCP scanner")
+    """Parse CLI arguments, scan TCP ports, and optionally export JSON."""
+    parser = argparse.ArgumentParser(
+        description="NetProbe TCP scanner"
+    )
 
     parser.add_argument(
         "-t", "--target",
@@ -247,7 +239,7 @@ def main() -> None:
         "-d", "--delay",
         type=float,
         default=0.0,
-        help="Seconds to wait before each worker scan attempt"
+        help="Delay in seconds before each scan attempt"
     )
 
     args = parser.parse_args()
@@ -255,29 +247,24 @@ def main() -> None:
     print("NetProbe v1.0 initialized...")
 
     if not math.isfinite(args.delay) or args.delay < 0:
-        print("[ERROR] Delay must be a finite non-negative number.")
-        return
+        parser.error("--delay must be a non-negative finite number")
 
     if args.target is None:
-        if args.output or args.ports != "1-1024" or args.delay > 0:
+        if args.output or args.ports != "1-1024" or args.delay:
             parser.error("--target is required to scan ports")
         return
 
     try:
         start_port, end_port = parse_port_range(args.ports)
     except ValueError as error:
-        print(f"[ERROR] {error}")
-        return
+        parser.error(str(error))
 
-    if args.delay > 0:
-        results = scan_ports(
-            args.target,
-            start_port,
-            end_port,
-            args.delay
-        )
-    else:
-        results = scan_ports(args.target, start_port, end_port)
+    results = scan_ports(
+        args.target,
+        start_port,
+        end_port,
+        delay=args.delay
+    )
 
     if args.output:
         try:
