@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """Socket scanning, DNS resolution and service discovery."""
 

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """Port range, scan delay and randomization helpers."""
 

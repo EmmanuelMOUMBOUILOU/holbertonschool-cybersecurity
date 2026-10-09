@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """JSON report creation and file export."""
 
