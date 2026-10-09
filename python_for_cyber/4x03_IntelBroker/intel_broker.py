@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Query threat intelligence APIs and run local Nmap scans."""
+"""Query threat intelligence APIs, run Nmap, and parse XML results."""
 
 import subprocess
+import xml.etree.ElementTree as ET
 
 import requests
 
@@ -106,6 +107,7 @@ def run_nmap(ip: str) -> str:
 
     if result.returncode != 0:
         message = result.stderr.strip()
+
         if not message:
             message = f"Exit code {result.returncode}"
 
@@ -114,11 +116,45 @@ def run_nmap(ip: str) -> str:
     return result.stdout
 
 
+def parse_nmap_xml(xml_data: str) -> list:
+    """Return integer port IDs whose Nmap XML state is open.
+
+    Return an empty list if the XML is invalid or has no open ports.
+    """
+    open_ports = []
+
+    try:
+        root = ET.fromstring(xml_data)
+
+    except (ET.ParseError, TypeError) as error:
+        print(f"[ERROR] Invalid Nmap XML: {error}")
+        return []
+
+    for port in root.findall(".//host/ports/port"):
+        state = port.find("state")
+
+        if state is None or state.get("state") != "open":
+            continue
+
+        port_id = port.get("portid")
+
+        try:
+            open_ports.append(int(port_id))
+
+        except (TypeError, ValueError):
+            continue
+
+    return open_ports
+
+
 if __name__ == "__main__":
     print(query_virustotal("1.2.3.4"))
     print(query_abuseipdb("1.2.3.4"))
 
     try:
-        print(run_nmap("127.0.0.1"))
+        xml_output = run_nmap("127.0.0.1")
+        print(xml_output)
+        print("Open ports:", parse_nmap_xml(xml_output))
+
     except RuntimeError as error:
         print(f"[ERROR] {error}")
