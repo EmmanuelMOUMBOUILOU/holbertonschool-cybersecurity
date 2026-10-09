@@ -149,7 +149,6 @@ def parse_nmap_xml(xml_data: str) -> list:
     return open_ports
 
 
-
 class TargetDossier:
     """Store intelligence data collected for a target IP address."""
 
@@ -165,7 +164,6 @@ class TargetDossier:
         self.vt_data = {} if vt_data is None else vt_data
         self.abuse_data = {} if abuse_data is None else abuse_data
         self.nmap_ports = [] if nmap_ports is None else nmap_ports
-
 
 
 def main() -> None:
