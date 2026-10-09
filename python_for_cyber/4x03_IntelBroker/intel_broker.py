@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Query simulated threat intelligence APIs for IP information."""
+"""Query threat intelligence APIs and run local Nmap scans."""
+
+import subprocess
 
 import requests
 
@@ -78,6 +80,45 @@ def query_abuseipdb(ip: str) -> dict:
     return {}
 
 
+def run_nmap(ip: str) -> str:
+    """Run Nmap on ports 22 and 80 and return raw XML stdout.
+
+    Raise RuntimeError if Nmap cannot run or exits unsuccessfully.
+    """
+    command = ["nmap", "-p", "22,80", ip, "-oX", "-"]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True
+        )
+
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "Nmap is not installed or cannot be found."
+        ) from error
+
+    except OSError as error:
+        raise RuntimeError(
+            f"Unable to execute Nmap: {error}"
+        ) from error
+
+    if result.returncode != 0:
+        message = result.stderr.strip()
+        if not message:
+            message = f"Exit code {result.returncode}"
+
+        raise RuntimeError(f"Nmap scan failed: {message}")
+
+    return result.stdout
+
+
 if __name__ == "__main__":
     print(query_virustotal("1.2.3.4"))
     print(query_abuseipdb("1.2.3.4"))
+
+    try:
+        print(run_nmap("127.0.0.1"))
+    except RuntimeError as error:
+        print(f"[ERROR] {error}")
