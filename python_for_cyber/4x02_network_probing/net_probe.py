@@ -113,7 +113,11 @@ def get_banner(
                 sock.bind((interface, 0))
             sock.connect((ip, port))
 
-            if port in (80, 8000, 8080, 8888):
+            if port == 80:
+                request = f"GET / HTTP/1.1\r\nHost: {ip}\r\n\r\n"
+                sock.sendall(request.encode("ascii"))
+                banner = sock.recv(4096)
+            elif port in (8000, 8080, 8888):
                 sock.sendall(b"HEAD / HTTP/1.0\r\n\r\n")
                 banner = sock.recv(1024)
             else:
@@ -129,6 +133,18 @@ def get_banner(
 
     except (OSError, ValueError, OverflowError):
         return "Unknown"
+
+
+def parse_http_server(response: str) -> str:
+    """Extract the Server header value from an HTTP response."""
+    headers = response.split("\r\n\r\n", 1)[0]
+
+    for line in headers.splitlines():
+        name, separator, value = line.partition(":")
+        if separator and name.strip().lower() == "server":
+            return value.strip()
+
+    return ""
 
 
 def guess_service(port: int) -> str:
@@ -149,6 +165,13 @@ def get_service_info(
         banner = get_banner(ip, port)
     else:
         banner = get_banner(ip, port, interface)
+
+    if port == 80:
+        server = parse_http_server(banner)
+        if server:
+            return f"HTTP ({server})"
+        if banner.startswith("HTTP/"):
+            return guess_service(port)
 
     if banner and banner.strip().lower() != "unknown":
         return banner.strip()
@@ -241,10 +264,14 @@ def scan_ports(
 
             if result is not None:
                 results.append(result)
-                print(
-                    f"[+] Port {result['port']} Open: "
-                    f"{result['service']}"
-                )
+                if (result["port"] == 80
+                        and result["service"].startswith("HTTP (")):
+                    print(f"[+] Port 80: {result['service']}")
+                else:
+                    print(
+                        f"[+] Port {result['port']} Open: "
+                        f"{result['service']}"
+                    )
 
     results.sort(key=lambda entry: entry["port"])
     return results
