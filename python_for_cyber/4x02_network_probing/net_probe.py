@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """NetProbe - network probing and service discovery tool."""
 
@@ -12,7 +11,6 @@ def check_port(ip: str, port: int) -> bool:
             sock.settimeout(1)
             sock.connect((ip, port))
             return True
-
     except (OSError, ValueError, OverflowError):
         return False
 
