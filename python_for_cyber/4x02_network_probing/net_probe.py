@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """NetProbe - network probing and service discovery tool."""
 
@@ -127,9 +128,14 @@ def get_banner(
                     sock.sendall(b"HEAD / HTTP/1.0\r\n\r\n")
                     banner = sock.recv(1024)
 
-            return banner.decode(
+            response = banner.decode(
                 "utf-8", errors="replace"
-            ).strip() or "Unknown"
+            ).strip()
+
+            if port == 80:
+                return parse_http_server(response) or "Unknown"
+
+            return response or "Unknown"
 
     except (OSError, ValueError, OverflowError):
         return "Unknown"
@@ -167,11 +173,11 @@ def get_service_info(
         banner = get_banner(ip, port, interface)
 
     if port == 80:
-        server = parse_http_server(banner)
-        if server:
-            return f"HTTP ({server})"
         if banner.startswith("HTTP/"):
-            return guess_service(port)
+            banner = parse_http_server(banner) or "Unknown"
+        if banner and banner.strip().lower() != "unknown":
+            return f"HTTP ({banner.strip()})"
+        return guess_service(port)
 
     if banner and banner.strip().lower() != "unknown":
         return banner.strip()
