@@ -149,18 +149,23 @@ def parse_nmap_xml(xml_data: str) -> list:
     return open_ports
 
 
+
 class TargetDossier:
-    """Store threat intelligence results for a target IP address.
+    """Store intelligence data collected for a target IP address."""
 
-    Initialize with an IP and empty containers for the three sources.
-    """
-
-    def __init__(self, ip: str) -> None:
-        """Create an empty dossier for the specified IP address."""
+    def __init__(
+        self,
+        ip: str = "",
+        vt_data: dict = None,
+        abuse_data: dict = None,
+        nmap_ports: list = None
+    ) -> None:
+        """Initialize a dossier with optional intelligence data."""
         self.ip = ip
-        self.vt_data = {}
-        self.abuse_data = {}
-        self.nmap_ports = []
+        self.vt_data = {} if vt_data is None else vt_data
+        self.abuse_data = {} if abuse_data is None else abuse_data
+        self.nmap_ports = [] if nmap_ports is None else nmap_ports
+
 
 
 def main() -> None:
