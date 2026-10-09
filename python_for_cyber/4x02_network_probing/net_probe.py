@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """NetProbe - network probing and service discovery tool."""
 
@@ -9,311 +8,210 @@ import random
 import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional
+from typing import Dict, List, Tuple
 
 
-MAX_WORKERS = 50
-
-COMMON_SERVICES = {
-    21: "FTP",
-    22: "SSH",
-    80: "HTTP",
-    443: "HTTPS",
-    3306: "MySQL"
+SERVICE_PORTS = {
+    20: "FTP-DATA", 21: "FTP", 22: "SSH", 23: "Telnet",
+    25: "SMTP", 53: "DNS", 67: "DHCP", 68: "DHCP",
+    80: "HTTP", 110: "POP3", 123: "NTP", 143: "IMAP",
+    161: "SNMP", 389: "LDAP", 443: "HTTPS", 445: "SMB",
+    465: "SMTPS", 587: "SMTP", 993: "IMAPS", 995: "POP3S",
+    1433: "MSSQL", 1521: "Oracle", 3306: "MySQL",
+    3389: "RDP", 5432: "PostgreSQL", 5900: "VNC",
+    6379: "Redis", 8080: "HTTP-ALT", 8443: "HTTPS-ALT",
 }
 
-VULNERABLE_SIGNATURES = [
-    "vsftpd 2.3.4",
-    "Apache 2.2.8",
-    "Apache/2.2.8"
-]
+VULNERABLE_SIGNATURES = (
+    "vsftpd 2.3.4", "openssh_4.", "apache/2.2.",
+    "proftpd 1.3.3c", "samba 3.0.20", "distccd",
+)
 
 
 def check_port(ip: str, port: int) -> bool:
-    """Return True if a TCP connection succeeds, otherwise False."""
+    """Return True when a TCP connection succeeds."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(1)
-            sock.connect((ip, port))
-            return True
-    except (OSError, ValueError, OverflowError):
+            sock.settimeout(1.0)
+            return sock.connect_ex((ip, port)) == 0
+    except (OSError, ValueError):
         return False
 
 
-def scan_udp(ip: str, port: int) -> bool:
-    """Return True for UDP response or timeout (open/filtered)."""
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.settimeout(1)
-            sock.connect((ip, port))
-            sock.send(b"")
-
-            try:
-                sock.recv(1024)
-                return True
-            except socket.timeout:
-                return True
-            except ConnectionRefusedError:
-                return False
-
-    except (OSError, ValueError, OverflowError):
-        return False
-
-
-def ping_sweep(subnet: str) -> list:
-    """Return hosts with TCP port 80 open in the given /24 subnet."""
-    live_hosts = []
-
+def ping_sweep(subnet: str) -> List[str]:
+    """Probe hosts in a /24 network using common TCP ports."""
+    prefix = subnet.split("/")[0].rsplit(".", 1)[0]
+    if len(prefix.split(".")) != 3:
+        raise ValueError("Expected a /24 IPv4 subnet")
+    active = []
     for host in range(1, 255):
-        ip = f"{subnet}.{host}"
-
-        if check_port(ip, 80):
-            live_hosts.append(ip)
-
-    return live_hosts
+        ip = "{}.{}".format(prefix, host)
+        if check_port(ip, 80) or check_port(ip, 443):
+            active.append(ip)
+    return active
 
 
 def get_banner(ip: str, port: int) -> str:
-    """Connect to a TCP service and return its banner or Unknown."""
+    """Retrieve a best-effort TCP service banner."""
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(1)
-            sock.connect((ip, port))
-
-            if port in (80, 8000, 8080, 8888):
+        with socket.create_connection((ip, port), timeout=1.0) as sock:
+            sock.settimeout(1.0)
+            if port in (80, 8080, 8000):
                 sock.sendall(b"HEAD / HTTP/1.0\r\n\r\n")
-                banner = sock.recv(1024)
-            else:
-                try:
-                    banner = sock.recv(1024)
-                except socket.timeout:
-                    sock.sendall(b"HEAD / HTTP/1.0\r\n\r\n")
-                    banner = sock.recv(1024)
-
-            return banner.decode(
-                "utf-8",
-                errors="replace"
-            ).strip() or "Unknown"
-
-    except (OSError, ValueError, OverflowError):
-        return "Unknown"
+            return sock.recv(1024).decode(
+                "utf-8", errors="replace"
+            ).strip()
+    except (OSError, ValueError):
+        return ""
 
 
 def guess_service(port: int) -> str:
-    """Return a guessed service name or Unknown for an unmapped port."""
-    service = COMMON_SERVICES.get(port)
-
-    if service is None:
-        return "Unknown"
-
-    return f"{service} (Guessed)"
+    """Guess the service associated with a TCP or UDP port."""
+    return SERVICE_PORTS.get(port, "Unknown")
 
 
-def get_service_info(ip: str, port: int) -> str:
-    """Return the service banner or a port-based service guess."""
+def check_vulnerability(banner: str) -> bool:
+    """Check a banner against a small set of known risky versions."""
+    banner_lower = banner.lower()
+    return any(signature in banner_lower
+               for signature in VULNERABLE_SIGNATURES)
+
+
+def get_service_info(ip: str, port: int) -> Dict[str, object]:
+    """Return the guessed service, banner, and vulnerability flag."""
     banner = get_banner(ip, port)
-
-    if banner and banner.strip().lower() != "unknown":
-        return banner.strip()
-
-    return guess_service(port)
-
-
-def check_vulnerability(banner: str) -> str:
-    """Return a vulnerability marker for known bad banner signatures."""
-    for signature in VULNERABLE_SIGNATURES:
-        if signature.lower() in banner.lower():
-            return "[VULNERABLE]"
-
-    return ""
-
-
-def scan_single_port(
-    ip: str,
-    port: int,
-    delay: float = 0.0
-) -> Optional[dict]:
-    """Scan one TCP port after an optional delay."""
-    if delay > 0:
-        print(f"[DEBUG] Sleeping {delay}s before next packet...")
-        time.sleep(delay)
-
-    if not check_port(ip, port):
-        return None
-
-    service = get_service_info(ip, port)
-    vulnerability = check_vulnerability(service)
-
-    if vulnerability:
-        service = f"{service} {vulnerability}"
-
     return {
-        "port": port,
-        "service": service
+        "service": guess_service(port),
+        "banner": banner,
+        "vulnerable": check_vulnerability(banner),
     }
 
 
-def scan_ports(
-    ip: str,
-    start_port: int,
-    end_port: int,
-    delay: float = 0.0,
-    randomize: bool = False
-) -> list:
-    """Scan TCP ports concurrently and return sorted open services."""
-    results = []
+def scan_single_port(ip: str, port: int) -> Dict[str, object]:
+    """Scan one TCP port and collect service information."""
+    is_open = check_port(ip, port)
+    result = {
+        "port": port,
+        "state": "open" if is_open else "closed",
+        "service": guess_service(port),
+        "vulnerable": False,
+    }
+    if is_open:
+        info = get_service_info(ip, port)
+        result.update(info)
+        if result["vulnerable"]:
+            result["marker"] = "[VULNERABLE]"
+    return result
 
-    print(f"Scanning {ip} from {start_port} to {end_port}...")
 
+def scan_ports(ip: str, start_port: int, end_port: int,
+               delay: float = 0.0, randomize: bool = False,
+               max_workers: int = 50) -> List[Dict[str, object]]:
+    """Scan a TCP port range using up to 50 threads."""
     if not 1 <= start_port <= end_port <= 65535:
-        print("[ERROR] Invalid port range.")
-        return results
-
-    if not math.isfinite(delay) or delay < 0:
-        print("[ERROR] Delay must be a non-negative finite number.")
-        return results
-
+        raise ValueError("Port range must be between 1 and 65535")
+    if delay < 0 or not math.isfinite(delay):
+        raise ValueError("Delay must be a finite nonnegative number")
     ports = list(range(start_port, end_port + 1))
-
     if randomize:
         random.shuffle(ports)
-        print("Scanning ports randomly...")
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = [
-            executor.submit(scan_single_port, ip, port, delay)
-            for port in ports
-        ]
-
+    results = []
+    with ThreadPoolExecutor(
+        max_workers=min(50, max(1, max_workers))
+    ) as pool:
+        futures = []
+        for port in ports:
+            futures.append(pool.submit(scan_single_port, ip, port))
+            if delay:
+                time.sleep(delay)
         for future in as_completed(futures):
-            try:
-                result = future.result()
-            except (OSError, ValueError, OverflowError) as error:
-                print(f"[ERROR] Port scan failed: {error}")
-                continue
-
-            if result is not None:
-                results.append(result)
-
-                print(
-                    f"[+] Port {result['port']} Open: "
-                    f"{result['service']}"
-                )
-
-    results.sort(key=lambda entry: entry["port"])
+            results.append(future.result())
+    if not randomize:
+        results.sort(key=lambda result: result["port"])
     return results
 
 
-def parse_port_range(port_range: str) -> tuple:
-    """Return inclusive TCP port bounds from START-END notation."""
-    parts = port_range.split("-")
-
-    if len(parts) != 2 or not all(part.isdigit() for part in parts):
-        raise ValueError("Port range must look like 1-1000.")
-
-    start_port, end_port = (int(part) for part in parts)
-
-    if not 1 <= start_port <= end_port <= 65535:
-        raise ValueError("Port numbers must be between 1 and 65535.")
-
-    return start_port, end_port
+def parse_port_range(value: str) -> Tuple[int, int]:
+    """Parse a port or an inclusive start-end port range."""
+    parts = value.split("-", 1)
+    try:
+        start = int(parts[0])
+        end = int(parts[1]) if len(parts) == 2 else start
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("Invalid port range") from exc
+    if not 1 <= start <= end <= 65535:
+        raise argparse.ArgumentTypeError("Ports must be in 1-65535")
+    return start, end
 
 
-def build_json_report(results: list) -> list:
-    """Convert scan results to JSON-ready open-port records."""
-    report = []
-    marker = " [VULNERABLE]"
+def build_json_report(ip: str, results: List[Dict[str, object]]) -> Dict:
+    """Build a JSON-serializable scan report."""
+    return {"target": ip, "results": results}
 
-    for result in results:
-        service = result["service"]
 
-        if service.endswith(marker):
-            service = service[:-len(marker)]
-
-        report.append({
-            "port": result["port"],
-            "state": "open",
-            "service": service,
-            "vulnerability": (
-                "YES" if check_vulnerability(service) else "NO"
-            )
-        })
-
-    return report
+def scan_udp(ip: str, port: int) -> bool:
+    """Return True for UDP open/open-filtered, False for errors."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(1.0)
+            sock.connect((ip, port))
+            sock.send(b"")
+            sock.recv(1024)
+            return True
+    except socket.timeout:
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def main() -> None:
-    """Parse CLI arguments, scan TCP ports, and optionally export JSON."""
-    parser = argparse.ArgumentParser(
-        description="NetProbe TCP scanner"
-    )
-
+    """Run NetProbe from the command line."""
+    parser = argparse.ArgumentParser(description="NetProbe TCP scanner")
     parser.add_argument(
-        "-t", "--target",
-        help="Authorized target IP"
+        "-t", "--target", required=True,
+        help="Target IPv4 address or hostname"
     )
-
     parser.add_argument(
-        "-p", "--ports",
-        default="1-1024",
-        help="Inclusive port range, e.g. 1-1000"
+        "-p", "--ports", default="1-1024",
+        type=parse_port_range,
+        help="Port or range (e.g. 20-80)"
     )
-
     parser.add_argument(
         "-o", "--output",
-        help="Output JSON filename"
+        help="Save results as JSON"
     )
-
     parser.add_argument(
-        "-d", "--delay",
-        type=float,
-        default=0.0,
-        help="Delay in seconds before each scan attempt"
+        "-d", "--delay", type=float, default=0.0,
+        help="Delay between submitting port probes"
     )
-
     parser.add_argument(
-        "-r", "--random",
-        action="store_true",
-        dest="randomize",
-        help="Shuffle the port scan order"
+        "-r", "--random", action="store_true",
+        help="Randomize the port scan order"
     )
-
     args = parser.parse_args()
-
-    print("NetProbe v1.0 initialized...")
-
-    if not math.isfinite(args.delay) or args.delay < 0:
-        parser.error("--delay must be a non-negative finite number")
-
-    if args.target is None:
-        if (args.output or args.ports != "1-1024" or args.delay
-                or args.randomize):
-            parser.error("--target is required to scan ports")
-        return
-
+    start, end = args.ports
     try:
-        start_port, end_port = parse_port_range(args.ports)
-    except ValueError as error:
-        parser.error(str(error))
+        results = scan_ports(
+            args.target, start, end,
+            delay=args.delay, randomize=args.random
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
-    results = scan_ports(
-        args.target,
-        start_port,
-        end_port,
-        delay=args.delay,
-        randomize=args.randomize
-    )
+    print("Target: {}".format(args.target))
+    for result in results:
+        line = "{port}/tcp {state} {service}".format(**result)
+        if result.get("vulnerable"):
+            line += " [VULNERABLE]"
+        print(line)
 
     if args.output:
-        try:
-            with open(args.output, "w", encoding="utf-8") as report_file:
-                json.dump(build_json_report(results), report_file, indent=2)
-                report_file.write("\n")
-        except (OSError, TypeError, KeyError) as error:
-            print(f"[ERROR] Could not export JSON report: {error}")
-            return
-
-        print(f"[*] Report saved: {args.output}")
+        with open(args.output, "w", encoding="utf-8") as output_file:
+            json.dump(
+                build_json_report(args.target, results),
+                output_file, indent=4
+            )
+            output_file.write("\n")
 
 
 if __name__ == "__main__":
