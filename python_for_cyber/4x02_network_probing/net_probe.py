@@ -4,6 +4,7 @@
 import argparse
 import json
 import math
+import random
 import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -135,7 +136,8 @@ def scan_ports(
     ip: str,
     start_port: int,
     end_port: int,
-    delay: float = 0.0
+    delay: float = 0.0,
+    randomize: bool = False
 ) -> list:
     """Scan TCP ports concurrently and return sorted open services."""
     results = []
@@ -150,10 +152,16 @@ def scan_ports(
         print("[ERROR] Delay must be a non-negative finite number.")
         return results
 
+    ports = list(range(start_port, end_port + 1))
+
+    if randomize:
+        random.shuffle(ports)
+        print("Scanning ports randomly...")
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = [
             executor.submit(scan_single_port, ip, port, delay)
-            for port in range(start_port, end_port + 1)
+            for port in ports
         ]
 
         for future in as_completed(futures):
@@ -242,6 +250,13 @@ def main() -> None:
         help="Delay in seconds before each scan attempt"
     )
 
+    parser.add_argument(
+        "-r", "--random",
+        action="store_true",
+        dest="randomize",
+        help="Shuffle the port scan order"
+    )
+
     args = parser.parse_args()
 
     print("NetProbe v1.0 initialized...")
@@ -250,7 +265,8 @@ def main() -> None:
         parser.error("--delay must be a non-negative finite number")
 
     if args.target is None:
-        if args.output or args.ports != "1-1024" or args.delay:
+        if (args.output or args.ports != "1-1024" or args.delay
+                or args.randomize):
             parser.error("--target is required to scan ports")
         return
 
@@ -263,7 +279,8 @@ def main() -> None:
         args.target,
         start_port,
         end_port,
-        delay=args.delay
+        delay=args.delay,
+        randomize=args.randomize
     )
 
     if args.output:
