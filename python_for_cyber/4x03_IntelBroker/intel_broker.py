@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """Query simulated threat intelligence APIs for IP information."""
 
