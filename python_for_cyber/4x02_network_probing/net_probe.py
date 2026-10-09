@@ -11,6 +11,7 @@ from typing import Optional
 
 
 MAX_WORKERS = 50
+SCAN_DELAY = 0.0
 
 COMMON_SERVICES = {
     21: "FTP",
@@ -131,13 +132,8 @@ def scan_single_port(
     }
 
 
-def scan_ports(
-    ip: str,
-    start_port: int,
-    end_port: int,
-    delay: float = 0.0
-) -> list:
-    """Scan ports with at most 50 workers and optional per-task delay."""
+def scan_ports(ip: str, start_port: int, end_port: int) -> list:
+    """Scan ports with at most 50 workers using the configured delay."""
     results = []
 
     print(f"Scanning {ip} from {start_port} to {end_port}...")
@@ -146,17 +142,13 @@ def scan_ports(
         print("[ERROR] Invalid port range.")
         return results
 
-    if not math.isfinite(delay) or delay < 0:
-        print("[ERROR] Delay must be a finite non-negative number.")
-        return results
-
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = []
 
         for port in range(start_port, end_port + 1):
-            if delay > 0:
+            if SCAN_DELAY > 0:
                 future = executor.submit(
-                    scan_single_port, ip, port, delay
+                    scan_single_port, ip, port, SCAN_DELAY
                 )
             else:
                 future = executor.submit(
@@ -181,7 +173,6 @@ def scan_ports(
                 )
 
     results.sort(key=lambda entry: entry["port"])
-
     return results
 
 
@@ -225,6 +216,8 @@ def build_json_report(results: list) -> list:
 
 def main() -> None:
     """Read CLI options, scan authorized targets, and export JSON."""
+    global SCAN_DELAY
+
     parser = argparse.ArgumentParser(description="NetProbe TCP scanner")
 
     parser.add_argument(
@@ -269,15 +262,9 @@ def main() -> None:
         print(f"[ERROR] {error}")
         return
 
-    if args.delay > 0:
-        results = scan_ports(
-            args.target,
-            start_port,
-            end_port,
-            args.delay
-        )
-    else:
-        results = scan_ports(args.target, start_port, end_port)
+    SCAN_DELAY = args.delay
+
+    results = scan_ports(args.target, start_port, end_port)
 
     if args.output:
         try:
