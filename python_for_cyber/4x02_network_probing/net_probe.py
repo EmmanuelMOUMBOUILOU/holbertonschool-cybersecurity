@@ -16,6 +16,12 @@ COMMON_SERVICES = {
     3306: "MySQL"
 }
 
+VULNERABLE_SIGNATURES = [
+    "vsftpd 2.3.4",
+    "Apache 2.2.8",
+    "Apache/2.2.8"
+]
+
 
 def check_port(ip: str, port: int) -> bool:
     """Return True if a TCP connection succeeds, otherwise False."""
@@ -68,7 +74,7 @@ def get_banner(ip: str, port: int) -> str:
 
 
 def guess_service(port: int) -> str:
-    """Return a guessed common service or Unknown for an unmapped port."""
+    """Return a guessed service name or Unknown for an unmapped port."""
     service = COMMON_SERVICES.get(port)
 
     if service is None:
@@ -87,12 +93,25 @@ def get_service_info(ip: str, port: int) -> str:
     return guess_service(port)
 
 
+def check_vulnerability(banner: str) -> str:
+    """Return a vulnerability marker for known bad banner signatures."""
+    for signature in VULNERABLE_SIGNATURES:
+        if signature.lower() in banner.lower():
+            return "[VULNERABLE]"
+
+    return ""
+
+
 def scan_single_port(ip: str, port: int) -> Optional[dict]:
-    """Return service details for an open port or None if closed."""
+    """Return an open port's service details or None if closed."""
     if not check_port(ip, port):
         return None
 
     service = get_service_info(ip, port)
+    vulnerability = check_vulnerability(service)
+
+    if vulnerability:
+        service = f"{service} {vulnerability}"
 
     return {
         "port": port,
