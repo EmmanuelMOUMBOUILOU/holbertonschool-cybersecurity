@@ -2,10 +2,15 @@
 """NetProbe - network probing and service discovery tool."""
 
 import socket
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
+
+
+MAX_WORKERS = 50
 
 
 def check_port(ip: str, port: int) -> bool:
-    """Return True when a TCP connection succeeds, otherwise False."""
+    """Return True if a TCP connection succeeds, otherwise False."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(1)
@@ -16,7 +21,7 @@ def check_port(ip: str, port: int) -> bool:
 
 
 def ping_sweep(subnet: str) -> list:
-    """Return hosts with TCP port 80 open in the given /24 subnet."""
+    """Return hosts with TCP port 80 open in a /24 subnet."""
     live_hosts = []
 
     for host in range(1, 255):
@@ -29,7 +34,7 @@ def ping_sweep(subnet: str) -> list:
 
 
 def get_banner(ip: str, port: int) -> str:
-    """Retrieve a TCP service banner or return Unknown on failure."""
+    """Connect to a TCP service and return its banner or Unknown."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(1)
@@ -54,22 +59,51 @@ def get_banner(ip: str, port: int) -> str:
         return "Unknown"
 
 
+def scan_single_port(ip: str, port: int) -> Optional[dict]:
+    """Return an open port's service details or None if closed."""
+    if not check_port(ip, port):
+        return None
+
+    service = get_banner(ip, port)
+
+    return {
+        "port": port,
+        "service": service
+    }
+
+
 def scan_ports(ip: str, start_port: int, end_port: int) -> list:
-    """Scan an inclusive TCP port range and return open services."""
+    """Scan TCP ports concurrently and return sorted open services."""
     results = []
 
     print(f"Scanning {ip} from {start_port} to {end_port}...")
 
-    for port in range(start_port, end_port + 1):
-        if check_port(ip, port):
-            service = get_banner(ip, port)
+    if not 1 <= start_port <= end_port <= 65535:
+        print("[ERROR] Invalid port range.")
+        return results
 
-            results.append({
-                "port": port,
-                "service": service
-            })
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [
+            executor.submit(scan_single_port, ip, port)
+            for port in range(start_port, end_port + 1)
+        ]
 
-            print(f"[+] Port {port} Open: {service}")
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+            except (OSError, ValueError, OverflowError) as error:
+                print(f"[ERROR] Port scan failed: {error}")
+                continue
+
+            if result is not None:
+                results.append(result)
+
+                print(
+                    f"[+] Port {result['port']} Open: "
+                    f"{result['service']}"
+                )
+
+    results.sort(key=lambda entry: entry["port"])
 
     return results
 
