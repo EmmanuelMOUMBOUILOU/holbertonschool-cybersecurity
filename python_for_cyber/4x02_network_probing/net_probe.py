@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """NetProbe - network probing and service discovery tool."""
 
@@ -14,6 +15,19 @@ def check_port(ip: str, port: int) -> bool:
 
     except (OSError, ValueError, OverflowError):
         return False
+
+
+def ping_sweep(subnet: str) -> list:
+    """Return IPs with TCP port 80 open in a /24 subnet."""
+    live_hosts = []
+
+    for host in range(1, 255):
+        ip = f"{subnet}.{host}"
+
+        if check_port(ip, 80):
+            live_hosts.append(ip)
+
+    return live_hosts
 
 
 def main() -> None:
