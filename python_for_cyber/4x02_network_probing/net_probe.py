@@ -1,6 +1,5 @@
 
 #!/usr/bin/env python3
-
 """NetProbe - network probing and service discovery tool."""
 
 import argparse
