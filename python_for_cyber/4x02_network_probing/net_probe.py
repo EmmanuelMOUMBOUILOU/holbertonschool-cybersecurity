@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """NetProbe - network probing and service discovery tool."""
 
+import argparse
+import json
 import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
@@ -35,7 +37,7 @@ def check_port(ip: str, port: int) -> bool:
 
 
 def ping_sweep(subnet: str) -> list:
-    """Return hosts with TCP port 80 open in a /24 subnet."""
+    """Return hosts with TCP port 80 open in the given /24 subnet."""
     live_hosts = []
 
     for host in range(1, 255):
@@ -151,13 +153,94 @@ def scan_ports(ip: str, start_port: int, end_port: int) -> list:
                 )
 
     results.sort(key=lambda entry: entry["port"])
-
     return results
 
 
+def parse_port_range(port_range: str) -> tuple:
+    """Return inclusive TCP port bounds from START-END notation."""
+    parts = port_range.split("-")
+
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        raise ValueError("Port range must look like 1-1000.")
+
+    start_port, end_port = (int(part) for part in parts)
+
+    if not 1 <= start_port <= end_port <= 65535:
+        raise ValueError("Port numbers must be between 1 and 65535.")
+
+    return start_port, end_port
+
+
+def build_json_report(results: list) -> list:
+    """Convert scan results to JSON-ready open-port records."""
+    report = []
+    marker = " [VULNERABLE]"
+
+    for result in results:
+        service = result["service"]
+
+        if service.endswith(marker):
+            service = service[:-len(marker)]
+
+        report.append({
+            "port": result["port"],
+            "state": "open",
+            "service": service,
+            "vulnerability": (
+                "YES" if check_vulnerability(service) else "NO"
+            )
+        })
+
+    return report
+
+
 def main() -> None:
-    """Initialize the NetProbe command-line application."""
+    """Parse CLI options, scan authorized ports, and optionally save JSON."""
+    parser = argparse.ArgumentParser(description="NetProbe TCP scanner")
+
+    parser.add_argument(
+        "-t", "--target",
+        help="Authorized target IP"
+    )
+
+    parser.add_argument(
+        "-p", "--ports",
+        default="1-1024",
+        help="Inclusive port range, e.g. 1-1000"
+    )
+
+    parser.add_argument(
+        "-o", "--output",
+        help="Output JSON filename"
+    )
+
+    args = parser.parse_args()
+
     print("NetProbe v1.0 initialized...")
+
+    if args.target is None:
+        if args.output or args.ports != "1-1024":
+            parser.error("--target is required to scan ports")
+        return
+
+    try:
+        start_port, end_port = parse_port_range(args.ports)
+    except ValueError as error:
+        print(f"[ERROR] {error}")
+        return
+
+    results = scan_ports(args.target, start_port, end_port)
+
+    if args.output:
+        try:
+            with open(args.output, "w", encoding="utf-8") as report_file:
+                json.dump(build_json_report(results), report_file, indent=2)
+                report_file.write("\n")
+        except (OSError, TypeError, KeyError) as error:
+            print(f"[ERROR] Could not export JSON report: {error}")
+            return
+
+        print(f"[*] Report saved: {args.output}")
 
 
 if __name__ == "__main__":
