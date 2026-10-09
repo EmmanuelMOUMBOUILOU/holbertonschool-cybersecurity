@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Query threat intelligence APIs, run Nmap, and parse XML results."""
+"""Collect and aggregate threat intelligence about an IP address."""
 
+import argparse
+import ipaddress
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -147,14 +149,63 @@ def parse_nmap_xml(xml_data: str) -> list:
     return open_ports
 
 
-if __name__ == "__main__":
-    print(query_virustotal("1.2.3.4"))
-    print(query_abuseipdb("1.2.3.4"))
+class TargetDossier:
+    """Store threat intelligence results for a target IP address.
+
+    Initialize with an IP and empty containers for the three sources.
+    """
+
+    def __init__(self, ip: str) -> None:
+        """Create an empty dossier for the specified IP address."""
+        self.ip = ip
+        self.vt_data = {}
+        self.abuse_data = {}
+        self.nmap_ports = []
+
+
+def main() -> None:
+    """Query three intelligence sources and display a target summary."""
+    parser = argparse.ArgumentParser(
+        description="IntelBroker - Threat Intelligence Aggregator"
+    )
+
+    parser.add_argument(
+        "ip",
+        help="Target IP address to investigate"
+    )
+
+    args = parser.parse_args()
 
     try:
-        xml_output = run_nmap("127.0.0.1")
-        print(xml_output)
-        print("Open ports:", parse_nmap_xml(xml_output))
+        ipaddress.ip_address(args.ip)
+    except ValueError:
+        parser.error("Please provide a valid IP address.")
+
+    dossier = TargetDossier(args.ip)
+
+    print(f"[*] Investigating target: {dossier.ip}")
+
+    print("[*] Querying VirusTotal...")
+    dossier.vt_data = query_virustotal(dossier.ip)
+
+    print("[*] Querying AbuseIPDB...")
+    dossier.abuse_data = query_abuseipdb(dossier.ip)
+
+    print("[*] Running Nmap...")
+    try:
+        xml_output = run_nmap(dossier.ip)
+        dossier.nmap_ports = parse_nmap_xml(xml_output)
 
     except RuntimeError as error:
         print(f"[ERROR] {error}")
+
+    print("\n===== TARGET DOSSIER =====")
+    print(f"Target IP: {dossier.ip}")
+    print(f"VirusTotal: {dossier.vt_data}")
+    print(f"AbuseIPDB: {dossier.abuse_data}")
+    print(f"Nmap Open Ports: {dossier.nmap_ports}")
+    print("==========================")
+
+
+if __name__ == "__main__":
+    main()
