@@ -8,6 +8,14 @@ from typing import Optional
 
 MAX_WORKERS = 50
 
+COMMON_SERVICES = {
+    21: "FTP",
+    22: "SSH",
+    80: "HTTP",
+    443: "HTTPS",
+    3306: "MySQL"
+}
+
 
 def check_port(ip: str, port: int) -> bool:
     """Return True if a TCP connection succeeds, otherwise False."""
@@ -59,12 +67,32 @@ def get_banner(ip: str, port: int) -> str:
         return "Unknown"
 
 
+def guess_service(port: int) -> str:
+    """Return a guessed common service or Unknown for an unmapped port."""
+    service = COMMON_SERVICES.get(port)
+
+    if service is None:
+        return "Unknown"
+
+    return f"{service} (Guessed)"
+
+
+def get_service_info(ip: str, port: int) -> str:
+    """Return the service banner or a port-based service guess."""
+    banner = get_banner(ip, port)
+
+    if banner and banner.strip().lower() != "unknown":
+        return banner.strip()
+
+    return guess_service(port)
+
+
 def scan_single_port(ip: str, port: int) -> Optional[dict]:
-    """Return an open port's service details or None if closed."""
+    """Return service details for an open port or None if closed."""
     if not check_port(ip, port):
         return None
 
-    service = get_banner(ip, port)
+    service = get_service_info(ip, port)
 
     return {
         "port": port,
