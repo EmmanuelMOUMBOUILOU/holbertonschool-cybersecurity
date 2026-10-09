@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """NetProbe - network probing and service discovery tool."""
 
@@ -6,7 +5,7 @@ import socket
 
 
 def check_port(ip: str, port: int) -> bool:
-    """Return True if a TCP connection succeeds, otherwise False."""
+    """Return True when a TCP connection succeeds, otherwise False."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(1)
@@ -17,7 +16,7 @@ def check_port(ip: str, port: int) -> bool:
 
 
 def ping_sweep(subnet: str) -> list:
-    """Return IPs with TCP port 80 open in a /24 subnet."""
+    """Return hosts with TCP port 80 open in the given /24 subnet."""
     live_hosts = []
 
     for host in range(1, 255):
@@ -30,7 +29,7 @@ def ping_sweep(subnet: str) -> list:
 
 
 def get_banner(ip: str, port: int) -> str:
-    """Connect to a TCP service and return its banner or Unknown."""
+    """Retrieve a TCP service banner or return Unknown on failure."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(1)
@@ -56,7 +55,7 @@ def get_banner(ip: str, port: int) -> str:
 
 
 def scan_ports(ip: str, start_port: int, end_port: int) -> list:
-    """Scan a TCP port range and return open ports with service banners."""
+    """Scan an inclusive TCP port range and return open services."""
     results = []
 
     print(f"Scanning {ip} from {start_port} to {end_port}...")
