@@ -107,15 +107,11 @@ def check_vulnerability(banner: str) -> str:
     return ""
 
 
-def scan_single_port(
-    ip: str,
-    port: int,
-    delay: float = 0.0
-) -> Optional[dict]:
-    """Optionally wait, then return service details for an open port."""
-    if delay > 0:
-        print(f"[DEBUG] Sleeping {delay}s before next packet...")
-        time.sleep(delay)
+def scan_single_port(ip: str, port: int) -> Optional[dict]:
+    """Wait for the configured delay and check a TCP service."""
+    if SCAN_DELAY > 0:
+        print(f"[DEBUG] Sleeping {SCAN_DELAY}s before next packet...")
+        time.sleep(SCAN_DELAY)
 
     if not check_port(ip, port):
         return None
@@ -133,7 +129,7 @@ def scan_single_port(
 
 
 def scan_ports(ip: str, start_port: int, end_port: int) -> list:
-    """Scan ports with at most 50 workers using the configured delay."""
+    """Scan TCP ports concurrently and return sorted open services."""
     results = []
 
     print(f"Scanning {ip} from {start_port} to {end_port}...")
@@ -143,19 +139,10 @@ def scan_ports(ip: str, start_port: int, end_port: int) -> list:
         return results
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = []
-
-        for port in range(start_port, end_port + 1):
-            if SCAN_DELAY > 0:
-                future = executor.submit(
-                    scan_single_port, ip, port, SCAN_DELAY
-                )
-            else:
-                future = executor.submit(
-                    scan_single_port, ip, port
-                )
-
-            futures.append(future)
+        futures = [
+            executor.submit(scan_single_port, ip, port)
+            for port in range(start_port, end_port + 1)
+        ]
 
         for future in as_completed(futures):
             try:
@@ -166,7 +153,6 @@ def scan_ports(ip: str, start_port: int, end_port: int) -> list:
 
             if result is not None:
                 results.append(result)
-
                 print(
                     f"[+] Port {result['port']} Open: "
                     f"{result['service']}"
@@ -240,11 +226,10 @@ def main() -> None:
         "-d", "--delay",
         type=float,
         default=0.0,
-        help="Seconds to wait before each worker scan attempt"
+        help="Seconds to pause before each worker scan attempt"
     )
 
     args = parser.parse_args()
-
     print("NetProbe v1.0 initialized...")
 
     if not math.isfinite(args.delay) or args.delay < 0:
@@ -263,7 +248,6 @@ def main() -> None:
         return
 
     SCAN_DELAY = args.delay
-
     results = scan_ports(args.target, start_port, end_port)
 
     if args.output:
