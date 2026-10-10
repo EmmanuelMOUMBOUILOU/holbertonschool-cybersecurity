@@ -20,23 +20,24 @@ API_SERVICES = ("virustotal", "shodan", "abuseipdb")
 
 
 async def fetch_api(session: aiohttp.ClientSession, url: str) -> dict:
-    """Fetch a JSON object from an API, returning {} on failure."""
+    """Fetch API data, returning an unavailable error on failure."""
     try:
         async with session.get(url) as response:
             if response.status != 200:
-                print(f"[ERROR] API returned HTTP {response.status}.")
-                return {}
+                print(f"[ERROR] API returned HTTP {response.status}: {url}")
+                return {"error": "Unavailable"}
 
             data = await response.json()
+
             if not isinstance(data, dict):
-                print("[ERROR] API response is not a JSON object.")
-                return {}
+                print(f"[ERROR] Invalid API response: {url}")
+                return {"error": "Unavailable"}
 
             return data
 
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
-        print(f"[ERROR] API request failed: {error}")
-        return {}
+        print(f"[ERROR] API unavailable: {url}: {error}")
+        return {"error": "Unavailable"}
 
 
 def load_cache() -> dict:
@@ -89,6 +90,8 @@ def get_cached_data(cache: dict, ip: str, service: str) -> Optional[dict]:
 
     if not isinstance(data, dict) or not data:
         return None
+    if data.get("error") == "Unavailable":
+        return None
 
     age = time.time() - timestamp
     if 0 <= age < CACHE_TTL:
@@ -125,10 +128,14 @@ async def query_services(
     async with aiohttp.ClientSession(timeout=timeout) as session:
 
         async def limited_fetch(service: str) -> dict:
-            """Hold one semaphore slot while making an HTTP request."""
+            """Fetch one API while respecting the concurrency limit."""
             url = f"http://localhost:5000/{service}/{ip}"
             async with semaphore:
-                return await fetch_api(session, url)
+                try:
+                    return await fetch_api(session, url)
+                except Exception as error:
+                    print(f"[ERROR] Unexpected API failure: {url}: {error}")
+                    return {"error": "Unavailable"}
 
         fetched = await asyncio.gather(
             *(limited_fetch(service) for _, service in missing)
@@ -137,7 +144,9 @@ async def query_services(
     updated = False
     for (index, service), data in zip(missing, fetched):
         results[index] = data
-        if not data:
+        if not isinstance(data, dict) or not data:
+            continue
+        if data.get("error") == "Unavailable":
             continue
 
         if not isinstance(cache.get(ip), dict):
@@ -317,6 +326,9 @@ async def collect_target(ip: str) -> TargetDossier:
 
     if isinstance(api_results, Exception):
         print(f"[ERROR] Intelligence queries failed: {api_results}")
+        dossier.vt_data = {"error": "Unavailable"}
+        dossier.shodan_data = {"error": "Unavailable"}
+        dossier.abuse_data = {"error": "Unavailable"}
     else:
         dossier.vt_data = api_results[0]
         dossier.shodan_data = api_results[1]
@@ -328,6 +340,13 @@ async def collect_target(ip: str) -> TargetDossier:
         dossier.nmap_ports = parse_nmap_xml(nmap_result)
 
     return dossier
+
+
+def format_intelligence(data: dict) -> str:
+    """Display unavailable API sources without exposing error details."""
+    if data.get("error") == "Unavailable":
+        return "Unavailable"
+    return str(data)
 
 
 def main() -> None:
@@ -353,9 +372,9 @@ def main() -> None:
 
     print("\n===== TARGET DOSSIER =====")
     print(f"Target IP: {dossier.ip}")
-    print(f"VirusTotal: {dossier.vt_data}")
-    print(f"Shodan: {dossier.shodan_data}")
-    print(f"AbuseIPDB: {dossier.abuse_data}")
+    print(f"VirusTotal: {format_intelligence(dossier.vt_data)}")
+    print(f"Shodan: {format_intelligence(dossier.shodan_data)}")
+    print(f"AbuseIPDB: {format_intelligence(dossier.abuse_data)}")
     print(f"Nmap Open Ports: {dossier.nmap_ports}")
     print("==========================")
 
@@ -365,3 +384,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
