@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Collect IP intelligence using asynchronous APIs and Nmap scanning."""
+"""Collect asynchronous threat intelligence and export JSON reports."""
 
 import argparse
 import asyncio
 import ipaddress
+import json
 import subprocess
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from typing import Optional
 
 import aiohttp
 
 
 async def fetch_api(session: aiohttp.ClientSession, url: str) -> dict:
-    """Fetch JSON data from an API, returning {} if the request fails."""
+    """Fetch JSON from an API endpoint, or return {} on failure."""
     try:
         async with session.get(url) as response:
             if response.status != 200:
@@ -20,7 +22,6 @@ async def fetch_api(session: aiohttp.ClientSession, url: str) -> dict:
                 return {}
 
             data = await response.json()
-
             if not isinstance(data, dict):
                 print("[ERROR] API response is not a JSON object.")
                 return {}
@@ -33,7 +34,7 @@ async def fetch_api(session: aiohttp.ClientSession, url: str) -> dict:
 
 
 async def _query_api(ip: str, service: str) -> dict:
-    """Query a local mock intelligence API."""
+    """Query a local mock API using a dedicated HTTP session."""
     url = f"http://localhost:5000/{service}/{ip}"
     timeout = aiohttp.ClientTimeout(total=5)
 
@@ -52,37 +53,20 @@ def query_abuseipdb(ip: str) -> dict:
 
 
 async def gather_intel(ip: str) -> list:
-    """Fetch VirusTotal, Shodan, and AbuseIPDB concurrently."""
+    """Fetch VirusTotal, Shodan and AbuseIPDB data concurrently."""
     base_url = "http://localhost:5000"
     timeout = aiohttp.ClientTimeout(total=5)
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        vt_task = fetch_api(
-            session,
-            f"{base_url}/virustotal/{ip}"
+        return await asyncio.gather(
+            fetch_api(session, f"{base_url}/virustotal/{ip}"),
+            fetch_api(session, f"{base_url}/shodan/{ip}"),
+            fetch_api(session, f"{base_url}/abuseipdb/{ip}")
         )
-
-        shodan_task = fetch_api(
-            session,
-            f"{base_url}/shodan/{ip}"
-        )
-
-        abuse_task = fetch_api(
-            session,
-            f"{base_url}/abuseipdb/{ip}"
-        )
-
-        results = await asyncio.gather(
-            vt_task,
-            shodan_task,
-            abuse_task
-        )
-
-    return results
 
 
 def run_nmap(ip: str) -> str:
-    """Run the original synchronous Nmap scan and return raw XML."""
+    """Run Nmap synchronously and return its XML output."""
     command = ["nmap", "-p", "22,80", ip, "-oX", "-"]
 
     try:
@@ -91,30 +75,20 @@ def run_nmap(ip: str) -> str:
             capture_output=True,
             text=True
         )
-
     except FileNotFoundError as error:
-        raise RuntimeError(
-            "Nmap is not installed or cannot be found."
-        ) from error
-
+        raise RuntimeError("Nmap is not installed.") from error
     except OSError as error:
-        raise RuntimeError(
-            f"Unable to execute Nmap: {error}"
-        ) from error
+        raise RuntimeError(f"Unable to execute Nmap: {error}") from error
 
     if result.returncode != 0:
-        message = result.stderr.strip()
-
-        if not message:
-            message = f"Exit code {result.returncode}"
-
+        message = result.stderr.strip() or str(result.returncode)
         raise RuntimeError(f"Nmap scan failed: {message}")
 
     return result.stdout
 
 
 async def run_nmap_async(ip: str) -> str:
-    """Run Nmap asynchronously and return its raw XML output."""
+    """Run Nmap asynchronously and return its decoded XML output."""
     command = ["nmap", "-p", "22,80", ip, "-oX", "-"]
 
     try:
@@ -123,53 +97,37 @@ async def run_nmap_async(ip: str) -> str:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-
         stdout, stderr = await process.communicate()
-
     except FileNotFoundError as error:
-        raise RuntimeError(
-            "Nmap is not installed or cannot be found."
-        ) from error
-
+        raise RuntimeError("Nmap is not installed.") from error
     except OSError as error:
-        raise RuntimeError(
-            f"Unable to execute Nmap: {error}"
-        ) from error
+        raise RuntimeError(f"Unable to execute Nmap: {error}") from error
 
     if process.returncode != 0:
-        message = stderr.decode(
-            "utf-8",
-            errors="replace"
-        ).strip()
-
+        message = stderr.decode("utf-8", errors="replace").strip()
         if not message:
             message = f"Exit code {process.returncode}"
-
         raise RuntimeError(f"Nmap scan failed: {message}")
 
     return stdout.decode("utf-8", errors="replace")
 
 
 def parse_nmap_xml(xml_data: str) -> list:
-    """Extract open port numbers from Nmap XML output."""
+    """Extract open TCP or UDP port IDs from Nmap XML."""
     try:
         root = ET.fromstring(xml_data)
-
     except (ET.ParseError, TypeError) as error:
         print(f"[ERROR] Invalid Nmap XML: {error}")
         return []
 
     open_ports = []
-
     for port in root.findall(".//host/ports/port"):
         state = port.find("state")
-
         if state is None or state.get("state") != "open":
             continue
 
         try:
             open_ports.append(int(port.get("portid")))
-
         except (TypeError, ValueError):
             continue
 
@@ -177,27 +135,63 @@ def parse_nmap_xml(xml_data: str) -> list:
 
 
 class TargetDossier:
-    """Store threat intelligence and scan results for a target IP."""
+    """Store intelligence data and scan results for one IP address."""
 
     def __init__(
         self,
         ip: str = "",
         vt_data: Optional[dict] = None,
         abuse_data: Optional[dict] = None,
-        nmap_ports: Optional[list] = None
+        nmap_ports: Optional[list] = None,
+        shodan_data: Optional[dict] = None
     ) -> None:
-        """Initialize a dossier with optional intelligence data."""
+        """Initialize the dossier with empty or supplied data."""
         self.ip = ip
         self.vt_data = {} if vt_data is None else vt_data
         self.abuse_data = {} if abuse_data is None else abuse_data
         self.nmap_ports = [] if nmap_ports is None else nmap_ports
-        self.shodan_data = {}
+        self.shodan_data = {} if shodan_data is None else shodan_data
+
+    def to_report(self) -> dict:
+        """Convert the complete dossier to a JSON-compatible dictionary."""
+        timestamp = datetime.now(timezone.utc).isoformat(
+            timespec="seconds"
+        ).replace("+00:00", "Z")
+
+        return {
+            "target": self.ip,
+            "timestamp": timestamp,
+            "intelligence": {
+                "virustotal": self.vt_data,
+                "shodan": self.shodan_data,
+                "abuseipdb": self.abuse_data,
+                "nmap": {"open_ports": self.nmap_ports}
+            }
+        }
+
+
+def save_report(dossier: TargetDossier, output: str) -> bool:
+    """Write the dossier as JSON and report whether writing succeeded."""
+    try:
+        with open(output, "w", encoding="utf-8") as report_file:
+            json.dump(
+                dossier.to_report(),
+                report_file,
+                indent=2,
+                ensure_ascii=False
+            )
+            report_file.write("\n")
+    except OSError as error:
+        print(f"[ERROR] Cannot save report: {error}")
+        return False
+
+    print(f"[OK] JSON report saved: {output}")
+    return True
 
 
 async def collect_target(ip: str) -> TargetDossier:
-    """Run intelligence API queries and Nmap concurrently."""
+    """Run API queries and Nmap concurrently to build a dossier."""
     dossier = TargetDossier(ip)
-
     print("[*] Querying VirusTotal, Shodan and AbuseIPDB...")
     print("[*] Running Nmap asynchronously...")
 
@@ -223,26 +217,24 @@ async def collect_target(ip: str) -> TargetDossier:
 
 
 def main() -> None:
-    """Collect target intelligence and display the final dossier."""
+    """Collect target intelligence, print it and optionally export JSON."""
     parser = argparse.ArgumentParser(
         description="IntelBroker - Threat Intelligence Aggregator"
     )
-
+    parser.add_argument("ip", help="Target IP address to investigate")
     parser.add_argument(
-        "ip",
-        help="Target IP address to investigate"
+        "-o", "--output",
+        metavar="FILE",
+        help="Save the complete dossier as a JSON report"
     )
-
     args = parser.parse_args()
 
     try:
         ipaddress.ip_address(args.ip)
-
     except ValueError:
         parser.error("Please provide a valid IP address.")
 
     print(f"[*] Investigating target: {args.ip}")
-
     dossier = asyncio.run(collect_target(args.ip))
 
     print("\n===== TARGET DOSSIER =====")
@@ -252,6 +244,9 @@ def main() -> None:
     print(f"AbuseIPDB: {dossier.abuse_data}")
     print(f"Nmap Open Ports: {dossier.nmap_ports}")
     print("==========================")
+
+    if args.output and not save_report(dossier, args.output):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
