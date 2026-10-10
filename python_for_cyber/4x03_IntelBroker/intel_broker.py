@@ -17,6 +17,11 @@ import aiohttp
 CACHE_FILE = "cache.json"
 CACHE_TTL = 3600
 API_SERVICES = ("virustotal", "shodan", "abuseipdb")
+SERVICE_NAMES = {
+    "virustotal": "VirusTotal",
+    "shodan": "Shodan",
+    "abuseipdb": "AbuseIPDB"
+}
 
 
 async def fetch_api(session: aiohttp.ClientSession, url: str) -> dict:
@@ -103,7 +108,8 @@ def get_cached_data(cache: dict, ip: str, service: str) -> Optional[dict]:
 async def query_services(
     ip: str,
     services: list,
-    semaphore: Optional[asyncio.Semaphore] = None
+    semaphore: Optional[asyncio.Semaphore] = None,
+    verbose: int = 0
 ) -> list:
     """Fetch uncached services with a maximum of five active requests."""
     cache = load_cache()
@@ -130,12 +136,25 @@ async def query_services(
         async def limited_fetch(service: str) -> dict:
             """Fetch one API while respecting the concurrency limit."""
             url = f"http://localhost:5000/{service}/{ip}"
+            name = SERVICE_NAMES.get(service, service)
+
             async with semaphore:
+                print(f"[+] Querying {name}...")
+                started = time.perf_counter()
                 try:
-                    return await fetch_api(session, url)
+                    data = await fetch_api(session, url)
                 except Exception as error:
                     print(f"[ERROR] Unexpected API failure: {url}: {error}")
-                    return {"error": "Unavailable"}
+                    data = {"error": "Unavailable"}
+
+                if verbose >= 1:
+                    status = "Unavailable" if data.get("error") else "OK"
+                    print(f"[VERBOSE] {name} status: {status}")
+                if verbose >= 2:
+                    elapsed = time.perf_counter() - started
+                    print(f"[VERBOSE] {name} duration: {elapsed:.2f}s")
+
+                return data
 
         fetched = await asyncio.gather(
             *(limited_fetch(service) for _, service in missing)
@@ -180,10 +199,10 @@ def query_abuseipdb(ip: str) -> dict:
     return asyncio.run(_query_api(ip, "abuseipdb"))
 
 
-async def gather_intel(ip: str) -> list:
+async def gather_intel(ip: str, verbose: int = 0) -> list:
     """Fetch cached intelligence with at most five simultaneous API calls."""
     semaphore = asyncio.Semaphore(5)
-    return await query_services(ip, list(API_SERVICES), semaphore)
+    return await query_services(ip, list(API_SERVICES), semaphore, verbose)
 
 
 def run_nmap(ip: str) -> str:
@@ -312,14 +331,22 @@ def save_report(dossier: TargetDossier, output: str) -> bool:
     return True
 
 
-async def collect_target(ip: str) -> TargetDossier:
+async def collect_target(ip: str, verbose: int = 0) -> TargetDossier:
     """Collect API intelligence and Nmap results concurrently."""
     dossier = TargetDossier(ip)
-    print("[*] Querying VirusTotal, Shodan and AbuseIPDB...")
-    print("[*] Running Nmap asynchronously...")
+    started = time.perf_counter()
 
+    if verbose >= 1:
+        print(f"[VERBOSE] Cache lifetime: {CACHE_TTL} seconds.")
+        print("[VERBOSE] Maximum parallel API requests: 5.")
+
+    print("[*] Collecting API intelligence...")
+    print("[+] Running Nmap...")
+
+    # Keep the original one-argument call for existing integrations.
+    api_coro = gather_intel(ip) if not verbose else gather_intel(ip, verbose)
     api_results, nmap_result = await asyncio.gather(
-        gather_intel(ip),
+        api_coro,
         run_nmap_async(ip),
         return_exceptions=True
     )
@@ -338,6 +365,11 @@ async def collect_target(ip: str) -> TargetDossier:
         print(f"[ERROR] {nmap_result}")
     else:
         dossier.nmap_ports = parse_nmap_xml(nmap_result)
+        print("[+] Nmap finished.")
+
+    if verbose >= 2:
+        elapsed = time.perf_counter() - started
+        print(f"[VERBOSE] Total collection time: {elapsed:.2f}s")
 
     return dossier
 
@@ -360,6 +392,12 @@ def main() -> None:
         metavar="FILE",
         help="Save the complete dossier as a JSON report"
     )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="count",
+        default=0,
+        help="Show extra status messages (use -vv for timings)"
+    )
     args = parser.parse_args()
 
     try:
@@ -368,7 +406,10 @@ def main() -> None:
         parser.error("Please provide a valid IP address.")
 
     print(f"[*] Investigating target: {args.ip}")
-    dossier = asyncio.run(collect_target(args.ip))
+    if args.verbose:
+        dossier = asyncio.run(collect_target(args.ip, args.verbose))
+    else:
+        dossier = asyncio.run(collect_target(args.ip))
 
     print("\n===== TARGET DOSSIER =====")
     print(f"Target IP: {dossier.ip}")
@@ -378,9 +419,14 @@ def main() -> None:
     print(f"Nmap Open Ports: {dossier.nmap_ports}")
     print("==========================")
 
-    if args.output and not save_report(dossier, args.output):
-        raise SystemExit(1)
+    if args.output:
+        if not save_report(dossier, args.output):
+            raise SystemExit(1)
+        print("[SUCCESS] Report generated.")
+    else:
+        print("[SUCCESS] Intelligence dossier ready.")
 
 
 if __name__ == "__main__":
     main()
+
