@@ -97,8 +97,12 @@ def get_cached_data(cache: dict, ip: str, service: str) -> Optional[dict]:
     return None
 
 
-async def query_services(ip: str, services: list) -> list:
-    """Fetch only uncached API services and preserve their result order."""
+async def query_services(
+    ip: str,
+    services: list,
+    semaphore: Optional[asyncio.Semaphore] = None
+) -> list:
+    """Fetch uncached services with a maximum of five active requests."""
     cache = load_cache()
     results = [{} for _ in services]
     missing = []
@@ -114,13 +118,20 @@ async def query_services(ip: str, services: list) -> list:
     if not missing:
         return results
 
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(5)
+
     timeout = aiohttp.ClientTimeout(total=5)
     async with aiohttp.ClientSession(timeout=timeout) as session:
+
+        async def limited_fetch(service: str) -> dict:
+            """Hold one semaphore slot while making an HTTP request."""
+            url = f"http://localhost:5000/{service}/{ip}"
+            async with semaphore:
+                return await fetch_api(session, url)
+
         fetched = await asyncio.gather(
-            *(
-                fetch_api(session, f"http://localhost:5000/{service}/{ip}")
-                for _, service in missing
-            )
+            *(limited_fetch(service) for _, service in missing)
         )
 
     updated = False
@@ -161,8 +172,9 @@ def query_abuseipdb(ip: str) -> dict:
 
 
 async def gather_intel(ip: str) -> list:
-    """Fetch VirusTotal, Shodan, and AbuseIPDB concurrently with caching."""
-    return await query_services(ip, list(API_SERVICES))
+    """Fetch cached intelligence with at most five simultaneous API calls."""
+    semaphore = asyncio.Semaphore(5)
+    return await query_services(ip, list(API_SERVICES), semaphore)
 
 
 def run_nmap(ip: str) -> str:
