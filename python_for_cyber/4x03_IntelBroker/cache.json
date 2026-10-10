@@ -29,5 +29,36 @@
         "reports": 11
       }
     }
+  },
+  "127.0.0.2": {
+    "virustotal": {
+      "timestamp": 1791606833.1423213,
+      "data": {
+        "ip": "127.0.0.2",
+        "reputation_score": 0,
+        "malicious": false
+      }
+    },
+    "shodan": {
+      "timestamp": 1791606833.1423244,
+      "data": {
+        "ip": "127.0.0.2",
+        "ports": [
+          80,
+          443,
+          8080
+        ],
+        "os": "Linux",
+        "isp": "CloudNet"
+      }
+    },
+    "abuseipdb": {
+      "timestamp": 1791606833.1423254,
+      "data": {
+        "ip": "127.0.0.2",
+        "abuse_confidence_score": 2,
+        "reports": 38
+      }
+    }
   }
 }
