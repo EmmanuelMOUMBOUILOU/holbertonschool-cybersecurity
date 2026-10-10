@@ -1,93 +1,57 @@
 #!/usr/bin/env python3
-"""Collect and aggregate threat intelligence about an IP address."""
+"""Collect IP intelligence with asynchronous HTTP requests and Nmap."""
 
 import argparse
+import asyncio
 import ipaddress
 import subprocess
 import xml.etree.ElementTree as ET
+from typing import Optional
 
-import requests
+import aiohttp
+
+
+async def fetch_api(session: aiohttp.ClientSession, url: str) -> dict:
+    """Fetch a JSON dictionary from a REST endpoint, or return {} on error."""
+    try:
+        async with session.get(url) as response:
+            if response.status != 200:
+                print(f"[ERROR] API returned HTTP {response.status}.")
+                return {}
+
+            data = await response.json()
+            if not isinstance(data, dict):
+                print("[ERROR] API response is not a JSON object.")
+                return {}
+
+            return data
+
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
+        print(f"[ERROR] API request failed: {error}")
+        return {}
+
+
+async def _query_api(ip: str, service: str) -> dict:
+    """Open an HTTP session and query a local mock intelligence service."""
+    url = f"http://localhost:5000/{service}/{ip}"
+    timeout = aiohttp.ClientTimeout(total=5)
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        return await fetch_api(session, url)
 
 
 def query_virustotal(ip: str) -> dict:
-    """Return VirusTotal JSON data for an IP, or {} on failure."""
-    url = f"http://localhost:5000/virustotal/{ip}"
-
-    try:
-        response = requests.get(url, timeout=5)
-
-        if response.status_code != 200:
-            print(
-                f"[ERROR] VirusTotal returned "
-                f"HTTP {response.status_code}."
-            )
-            return {}
-
-        data = response.json()
-
-        if not isinstance(data, dict):
-            print("[ERROR] Unexpected VirusTotal response format.")
-            return {}
-
-        return data
-
-    except requests.exceptions.ConnectionError:
-        print("[ERROR] Cannot connect to the mock API server.")
-
-    except requests.exceptions.Timeout:
-        print("[ERROR] VirusTotal API request timed out.")
-
-    except ValueError:
-        print("[ERROR] Invalid JSON response from VirusTotal.")
-
-    except requests.exceptions.RequestException as error:
-        print(f"[ERROR] VirusTotal request failed: {error}")
-
-    return {}
+    """Return VirusTotal mock data synchronously, or {} on failure."""
+    return asyncio.run(_query_api(ip, "virustotal"))
 
 
 def query_abuseipdb(ip: str) -> dict:
-    """Return AbuseIPDB JSON data for an IP, or {} on failure."""
-    url = f"http://localhost:5000/abuseipdb/{ip}"
-
-    try:
-        response = requests.get(url, timeout=5)
-
-        if response.status_code != 200:
-            print(
-                f"[ERROR] AbuseIPDB returned "
-                f"HTTP {response.status_code}."
-            )
-            return {}
-
-        data = response.json()
-
-        if not isinstance(data, dict):
-            print("[ERROR] Unexpected AbuseIPDB response format.")
-            return {}
-
-        return data
-
-    except requests.exceptions.ConnectionError:
-        print("[ERROR] Cannot connect to the mock API server.")
-
-    except requests.exceptions.Timeout:
-        print("[ERROR] AbuseIPDB API request timed out.")
-
-    except ValueError:
-        print("[ERROR] Invalid JSON response from AbuseIPDB.")
-
-    except requests.exceptions.RequestException as error:
-        print(f"[ERROR] AbuseIPDB request failed: {error}")
-
-    return {}
+    """Return AbuseIPDB mock data synchronously, or {} on failure."""
+    return asyncio.run(_query_api(ip, "abuseipdb"))
 
 
 def run_nmap(ip: str) -> str:
-    """Run Nmap on ports 22 and 80 and return raw XML stdout.
-
-    Raise RuntimeError if Nmap cannot run or exits unsuccessfully.
-    """
+    """Return raw Nmap XML for ports 22 and 80, or raise RuntimeError."""
     command = ["nmap", "-p", "22,80", ip, "-oX", "-"]
 
     try:
@@ -96,12 +60,10 @@ def run_nmap(ip: str) -> str:
             capture_output=True,
             text=True
         )
-
     except FileNotFoundError as error:
         raise RuntimeError(
             "Nmap is not installed or cannot be found."
         ) from error
-
     except OSError as error:
         raise RuntimeError(
             f"Unable to execute Nmap: {error}"
@@ -109,40 +71,29 @@ def run_nmap(ip: str) -> str:
 
     if result.returncode != 0:
         message = result.stderr.strip()
-
         if not message:
             message = f"Exit code {result.returncode}"
-
         raise RuntimeError(f"Nmap scan failed: {message}")
 
     return result.stdout
 
 
 def parse_nmap_xml(xml_data: str) -> list:
-    """Return integer port IDs whose Nmap XML state is open.
-
-    Return an empty list if the XML is invalid or has no open ports.
-    """
-    open_ports = []
-
+    """Extract open port numbers from Nmap XML, or [] for invalid XML."""
     try:
         root = ET.fromstring(xml_data)
-
     except (ET.ParseError, TypeError) as error:
         print(f"[ERROR] Invalid Nmap XML: {error}")
         return []
 
+    open_ports = []
     for port in root.findall(".//host/ports/port"):
         state = port.find("state")
-
         if state is None or state.get("state") != "open":
             continue
 
-        port_id = port.get("portid")
-
         try:
-            open_ports.append(int(port_id))
-
+            open_ports.append(int(port.get("portid")))
         except (TypeError, ValueError):
             continue
 
@@ -150,16 +101,16 @@ def parse_nmap_xml(xml_data: str) -> list:
 
 
 class TargetDossier:
-    """Store intelligence data collected for a target IP address."""
+    """Store IP address, VirusTotal, AbuseIPDB, and Nmap scan results."""
 
     def __init__(
         self,
         ip: str = "",
-        vt_data: dict = None,
-        abuse_data: dict = None,
-        nmap_ports: list = None
+        vt_data: Optional[dict] = None,
+        abuse_data: Optional[dict] = None,
+        nmap_ports: Optional[list] = None
     ) -> None:
-        """Initialize a dossier with optional intelligence data."""
+        """Initialize a dossier with optional intelligence results."""
         self.ip = ip
         self.vt_data = {} if vt_data is None else vt_data
         self.abuse_data = {} if abuse_data is None else abuse_data
@@ -167,16 +118,11 @@ class TargetDossier:
 
 
 def main() -> None:
-    """Query three intelligence sources and display a target summary."""
+    """Collect three sources sequentially and print a target summary."""
     parser = argparse.ArgumentParser(
         description="IntelBroker - Threat Intelligence Aggregator"
     )
-
-    parser.add_argument(
-        "ip",
-        help="Target IP address to investigate"
-    )
-
+    parser.add_argument("ip", help="Target IP address to investigate")
     args = parser.parse_args()
 
     try:
@@ -185,7 +131,6 @@ def main() -> None:
         parser.error("Please provide a valid IP address.")
 
     dossier = TargetDossier(args.ip)
-
     print(f"[*] Investigating target: {dossier.ip}")
 
     print("[*] Querying VirusTotal...")
@@ -198,7 +143,6 @@ def main() -> None:
     try:
         xml_output = run_nmap(dossier.ip)
         dossier.nmap_ports = parse_nmap_xml(xml_output)
-
     except RuntimeError as error:
         print(f"[ERROR] {error}")
 
