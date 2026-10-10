@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Collect asynchronous threat intelligence and export JSON reports."""
+"""Collect IP intelligence asynchronously and cache API responses."""
 
 import argparse
 import asyncio
 import ipaddress
 import json
 import subprocess
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Optional
@@ -13,8 +14,13 @@ from typing import Optional
 import aiohttp
 
 
+CACHE_FILE = "cache.json"
+CACHE_TTL = 3600
+API_SERVICES = ("virustotal", "shodan", "abuseipdb")
+
+
 async def fetch_api(session: aiohttp.ClientSession, url: str) -> dict:
-    """Fetch JSON from an API endpoint, or return {} on failure."""
+    """Fetch a JSON object from an API, returning {} on failure."""
     try:
         async with session.get(url) as response:
             if response.status != 200:
@@ -33,40 +39,134 @@ async def fetch_api(session: aiohttp.ClientSession, url: str) -> dict:
         return {}
 
 
-async def _query_api(ip: str, service: str) -> dict:
-    """Query a local mock API using a dedicated HTTP session."""
-    url = f"http://localhost:5000/{service}/{ip}"
-    timeout = aiohttp.ClientTimeout(total=5)
+def load_cache() -> dict:
+    """Read the JSON cache, returning {} if it is missing or invalid."""
+    try:
+        with open(CACHE_FILE, "r", encoding="utf-8") as cache_file:
+            cache = json.load(cache_file)
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"[WARNING] Cannot read cache: {error}")
+        return {}
 
+    if not isinstance(cache, dict):
+        print("[WARNING] Cache format is invalid.")
+        return {}
+
+    return cache
+
+
+def save_cache(cache: dict) -> bool:
+    """Save API responses to the JSON cache file."""
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as cache_file:
+            json.dump(cache, cache_file, indent=2)
+            cache_file.write("\n")
+    except (OSError, TypeError, ValueError) as error:
+        print(f"[WARNING] Cannot save cache: {error}")
+        return False
+
+    return True
+
+
+def get_cached_data(cache: dict, ip: str, service: str) -> Optional[dict]:
+    """Return a cached API response if it is less than one hour old."""
+    ip_cache = cache.get(ip)
+    if not isinstance(ip_cache, dict):
+        return None
+
+    entry = ip_cache.get(service)
+    if not isinstance(entry, dict):
+        return None
+
+    timestamp = entry.get("timestamp")
+    data = entry.get("data")
+    if isinstance(timestamp, bool):
+        return None
+    if not isinstance(timestamp, (int, float)):
+        return None
+
+    if not isinstance(data, dict) or not data:
+        return None
+
+    age = time.time() - timestamp
+    if 0 <= age < CACHE_TTL:
+        return data
+
+    return None
+
+
+async def query_services(ip: str, services: list) -> list:
+    """Fetch only uncached API services and preserve their result order."""
+    cache = load_cache()
+    results = [{} for _ in services]
+    missing = []
+
+    for index, service in enumerate(services):
+        cached = get_cached_data(cache, ip, service)
+        if cached is not None:
+            print(f"[CACHE] Reusing {service} data for {ip}.")
+            results[index] = cached
+        else:
+            missing.append((index, service))
+
+    if not missing:
+        return results
+
+    timeout = aiohttp.ClientTimeout(total=5)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        return await fetch_api(session, url)
+        fetched = await asyncio.gather(
+            *(
+                fetch_api(session, f"http://localhost:5000/{service}/{ip}")
+                for _, service in missing
+            )
+        )
+
+    updated = False
+    for (index, service), data in zip(missing, fetched):
+        results[index] = data
+        if not data:
+            continue
+
+        if not isinstance(cache.get(ip), dict):
+            cache[ip] = {}
+
+        cache[ip][service] = {
+            "timestamp": time.time(),
+            "data": data
+        }
+        updated = True
+
+    if updated:
+        save_cache(cache)
+
+    return results
+
+
+async def _query_api(ip: str, service: str) -> dict:
+    """Query one API, reusing a fresh cached response if available."""
+    results = await query_services(ip, [service])
+    return results[0]
 
 
 def query_virustotal(ip: str) -> dict:
-    """Return VirusTotal mock data synchronously."""
+    """Return VirusTotal data using the asynchronous API client."""
     return asyncio.run(_query_api(ip, "virustotal"))
 
 
 def query_abuseipdb(ip: str) -> dict:
-    """Return AbuseIPDB mock data synchronously."""
+    """Return AbuseIPDB data using the asynchronous API client."""
     return asyncio.run(_query_api(ip, "abuseipdb"))
 
 
 async def gather_intel(ip: str) -> list:
-    """Fetch VirusTotal, Shodan and AbuseIPDB data concurrently."""
-    base_url = "http://localhost:5000"
-    timeout = aiohttp.ClientTimeout(total=5)
-
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        return await asyncio.gather(
-            fetch_api(session, f"{base_url}/virustotal/{ip}"),
-            fetch_api(session, f"{base_url}/shodan/{ip}"),
-            fetch_api(session, f"{base_url}/abuseipdb/{ip}")
-        )
+    """Fetch VirusTotal, Shodan, and AbuseIPDB concurrently with caching."""
+    return await query_services(ip, list(API_SERVICES))
 
 
 def run_nmap(ip: str) -> str:
-    """Run Nmap synchronously and return its XML output."""
+    """Run Nmap synchronously and return its raw XML output."""
     command = ["nmap", "-p", "22,80", ip, "-oX", "-"]
 
     try:
@@ -81,14 +181,16 @@ def run_nmap(ip: str) -> str:
         raise RuntimeError(f"Unable to execute Nmap: {error}") from error
 
     if result.returncode != 0:
-        message = result.stderr.strip() or str(result.returncode)
+        message = (result.stderr or "").strip()
+        if not message:
+            message = f"Exit code {result.returncode}"
         raise RuntimeError(f"Nmap scan failed: {message}")
 
     return result.stdout
 
 
 async def run_nmap_async(ip: str) -> str:
-    """Run Nmap asynchronously and return its decoded XML output."""
+    """Run Nmap without blocking and return its decoded XML output."""
     command = ["nmap", "-p", "22,80", ip, "-oX", "-"]
 
     try:
@@ -113,7 +215,7 @@ async def run_nmap_async(ip: str) -> str:
 
 
 def parse_nmap_xml(xml_data: str) -> list:
-    """Extract open TCP or UDP port IDs from Nmap XML."""
+    """Return the open port numbers found in Nmap XML output."""
     try:
         root = ET.fromstring(xml_data)
     except (ET.ParseError, TypeError) as error:
@@ -135,7 +237,7 @@ def parse_nmap_xml(xml_data: str) -> list:
 
 
 class TargetDossier:
-    """Store intelligence data and scan results for one IP address."""
+    """Store intelligence and Nmap results for a target IP address."""
 
     def __init__(
         self,
@@ -145,7 +247,7 @@ class TargetDossier:
         nmap_ports: Optional[list] = None,
         shodan_data: Optional[dict] = None
     ) -> None:
-        """Initialize the dossier with empty or supplied data."""
+        """Initialize the dossier with empty or supplied intelligence."""
         self.ip = ip
         self.vt_data = {} if vt_data is None else vt_data
         self.abuse_data = {} if abuse_data is None else abuse_data
@@ -171,7 +273,7 @@ class TargetDossier:
 
 
 def save_report(dossier: TargetDossier, output: str) -> bool:
-    """Write the dossier as JSON and report whether writing succeeded."""
+    """Write the complete target dossier to a JSON report file."""
     try:
         with open(output, "w", encoding="utf-8") as report_file:
             json.dump(
@@ -181,7 +283,7 @@ def save_report(dossier: TargetDossier, output: str) -> bool:
                 ensure_ascii=False
             )
             report_file.write("\n")
-    except OSError as error:
+    except (OSError, TypeError, ValueError) as error:
         print(f"[ERROR] Cannot save report: {error}")
         return False
 
@@ -190,7 +292,7 @@ def save_report(dossier: TargetDossier, output: str) -> bool:
 
 
 async def collect_target(ip: str) -> TargetDossier:
-    """Run API queries and Nmap concurrently to build a dossier."""
+    """Collect API intelligence and Nmap results concurrently."""
     dossier = TargetDossier(ip)
     print("[*] Querying VirusTotal, Shodan and AbuseIPDB...")
     print("[*] Running Nmap asynchronously...")
@@ -217,7 +319,7 @@ async def collect_target(ip: str) -> TargetDossier:
 
 
 def main() -> None:
-    """Collect target intelligence, print it and optionally export JSON."""
+    """Collect an IP dossier, display it, and optionally export JSON."""
     parser = argparse.ArgumentParser(
         description="IntelBroker - Threat Intelligence Aggregator"
     )
