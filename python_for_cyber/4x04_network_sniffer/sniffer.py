@@ -8,10 +8,10 @@ from scapy.utils import PcapWriter
 
 
 class Sniffer:
-    """Capture and process network packets with optional PCAP output."""
+    """Capture and analyze network traffic."""
 
     def __init__(self, interface, filter_str, output_file):
-        """Configure capture interface, BPF filter, and output file."""
+        """Initialize the sniffer configuration."""
         self.interface = interface
         self.filter_str = filter_str
         self.output_file = output_file
@@ -23,7 +23,10 @@ class Sniffer:
         if self.pcap_writer is not None:
             self.pcap_writer.write(packet)
 
-        if hasattr(packet, "haslayer") and packet.haslayer("IP"):
+        if not hasattr(packet, "haslayer"):
+            return
+
+        if packet.haslayer("IP"):
             src = packet["IP"].src
             dst = packet["IP"].dst
 
@@ -31,12 +34,15 @@ class Sniffer:
                 sport = packet["TCP"].sport
                 dport = packet["TCP"].dport
                 flags = packet["TCP"].flags
+
                 print(
                     f"[TCP] {src}:{sport} -> {dst}:{dport} "
                     f"| Flags: {flags}"
                 )
+
             elif packet.haslayer("UDP"):
                 print(f"[UDP] {src} -> {dst}")
+
             elif packet.haslayer("ICMP"):
                 print(f"[ICMP] {src} -> {dst}")
 
@@ -45,11 +51,11 @@ class Sniffer:
             hexdump(packet)
 
     def start(self):
-        """Start capturing packets and close the writer on exit."""
+        """Start packet capture and clean up resources."""
         print("[INFO] PySniffer initialized.")
 
         try:
-            if self.output_file:
+            if self.output_file is not None:
                 self.pcap_writer = PcapWriter(
                     self.output_file,
                     append=True,
@@ -65,36 +71,58 @@ class Sniffer:
 
         except KeyboardInterrupt:
             print("[INFO] Stopping capture...")
+
         except OSError as error:
             print(f"[ERROR] Packet capture failed: {error}")
             raise SystemExit(1)
+
         finally:
             if self.pcap_writer is not None:
                 self.pcap_writer.close()
+                self.pcap_writer = None
 
 
-if __name__ == "__main__":
+def main():
+    """Parse command-line arguments and launch the sniffer."""
     parser = argparse.ArgumentParser(
         description="PySniffer - Network packet analyzer"
     )
+
     parser.add_argument(
-        "-i", "--interface",
+        "-i",
+        "--interface",
         help="Network interface to capture packets from"
     )
+
     parser.add_argument(
-        "-f", "--filter",
+        "-f",
+        "--filter",
         help="BPF filter expression for packet capture"
     )
+
     parser.add_argument(
-        "--write", metavar="FILE",
+        "--write",
+        metavar="FILE",
         help="Save captured packets to a PCAP file"
     )
+
     parser.add_argument(
-        "-v", "--verbose", action="store_true",
+        "-v",
+        "--verbose",
+        action="store_true",
         help="Display hexadecimal dumps of captured packets"
     )
 
     args = parser.parse_args()
-    sniffer = Sniffer(args.interface, args.filter, args.write)
+
+    sniffer = Sniffer(
+        args.interface,
+        args.filter,
+        args.write
+    )
     sniffer.verbose = args.verbose
     sniffer.start()
+
+
+if __name__ == "__main__":
+    main()
