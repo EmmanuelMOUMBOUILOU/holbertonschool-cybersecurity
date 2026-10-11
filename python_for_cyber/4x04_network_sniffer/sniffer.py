@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Capture and analyze network traffic continuously using Scapy."""
+"""Capture and filter network traffic continuously using Scapy."""
+
+import argparse
 
 from scapy.all import sniff
 
@@ -28,10 +30,32 @@ def packet_handler(packet):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="PySniffer - Network packet analyzer"
+    )
+
+    parser.add_argument(
+        "-i",
+        "--interface",
+        help="Network interface to capture packets from"
+    )
+
+    parser.add_argument(
+        "-f",
+        "--filter",
+        help="BPF filter expression for packet capture"
+    )
+
+    args = parser.parse_args()
+
     print("[INFO] PySniffer initialized.")
 
     try:
-        sniff(prn=packet_handler)
+        sniff(
+            iface=args.interface,
+            filter=args.filter,
+            prn=packet_handler
+        )
     except KeyboardInterrupt:
         print("[INFO] Stopping capture...")
     except OSError as error:
