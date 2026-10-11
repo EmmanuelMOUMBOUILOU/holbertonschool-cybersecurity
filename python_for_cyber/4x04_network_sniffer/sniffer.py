@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture network packets and display protocol details using Scapy."""
+"""Capture and analyze network traffic continuously using Scapy."""
 
 from scapy.all import sniff, IP, TCP, UDP, ICMP
 
@@ -31,7 +31,9 @@ if __name__ == "__main__":
     print("[INFO] PySniffer initialized.")
 
     try:
-        sniff(count=5, prn=packet_handler)
+        sniff(prn=packet_handler)
+    except KeyboardInterrupt:
+        print("[INFO] Stopping capture...")
     except OSError as error:
         print(f"[ERROR] Packet capture failed: {error}")
         raise SystemExit(1)
