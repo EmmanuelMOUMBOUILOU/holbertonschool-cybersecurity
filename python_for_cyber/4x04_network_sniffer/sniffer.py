@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """Capture and process network packets using a worker thread."""
 
@@ -5,12 +6,7 @@ import argparse
 from queue import Queue
 from threading import Thread
 
-from scapy.all import sniff
-
-try:
-    from scapy.all import Raw
-except ImportError:
-    Raw = None
+from scapy.all import IP, TCP, UDP, ICMP, Raw, sniff
 
 try:
     from scapy.utils import PcapWriter
@@ -33,15 +29,11 @@ class TCPProcessor(PacketProcessor):
 
     def process(self, packet):
         """Display TCP addresses, ports, and flags."""
-        if not packet.haslayer("IP"):
+        if not packet.haslayer(IP):
             return
 
-        if hasattr(packet, "getlayer"):
-            ip = packet.getlayer("IP")
-            tcp = packet.getlayer("TCP")
-        else:
-            ip = packet["IP"]
-            tcp = packet["TCP"]
+        ip = packet[IP]
+        tcp = packet[TCP]
 
         print(
             f"[TCP] {ip.src}:{tcp.sport} -> "
@@ -54,13 +46,10 @@ class UDPProcessor(PacketProcessor):
 
     def process(self, packet):
         """Display UDP source and destination addresses."""
-        if not packet.haslayer("IP"):
+        if not packet.haslayer(IP):
             return
 
-        if hasattr(packet, "getlayer"):
-            ip = packet.getlayer("IP")
-        else:
-            ip = packet["IP"]
+        ip = packet[IP]
 
         print(f"[UDP] {ip.src} -> {ip.dst}")
 
@@ -70,13 +59,10 @@ class ICMPProcessor(PacketProcessor):
 
     def process(self, packet):
         """Display ICMP source and destination addresses."""
-        if not packet.haslayer("IP"):
+        if not packet.haslayer(IP):
             return
 
-        if hasattr(packet, "getlayer"):
-            ip = packet.getlayer("IP")
-        else:
-            ip = packet["IP"]
+        ip = packet[IP]
 
         print(f"[ICMP] {ip.src} -> {ip.dst}")
 
@@ -94,9 +80,9 @@ class Sniffer:
         self.pcap_writer = None
 
         self.processors = {
-            "TCP": TCPProcessor(),
-            "UDP": UDPProcessor(),
-            "ICMP": ICMPProcessor()
+            TCP: TCPProcessor(),
+            UDP: UDPProcessor(),
+            ICMP: ICMPProcessor()
         }
 
         self.stats = {
@@ -134,9 +120,13 @@ class Sniffer:
             self.stats["OTHER"] += 1
             return
 
-        for protocol in ("TCP", "UDP", "ICMP"):
+        for protocol, name in (
+            (TCP, "TCP"),
+            (UDP, "UDP"),
+            (ICMP, "ICMP")
+        ):
             if packet.haslayer(protocol):
-                self.stats[protocol] += 1
+                self.stats[name] += 1
                 return
 
         self.stats["OTHER"] += 1
@@ -163,25 +153,11 @@ class Sniffer:
         if not hasattr(packet, "haslayer"):
             return
 
-        raw_layer = Raw if Raw is not None else "Raw"
-
-        if not packet.haslayer(raw_layer):
+        if not packet.haslayer(Raw):
             return
 
-        if hasattr(packet, "getlayer"):
-            raw = packet.getlayer(raw_layer)
-        else:
-            raw = packet[raw_layer]
-
-        if raw is None:
-            return
-
-        payload = raw.load
-
-        if isinstance(payload, bytes):
-            text = payload.decode("utf-8", errors="replace")
-        else:
-            text = str(payload)
+        payload = packet[Raw].load
+        text = payload.decode("utf-8", errors="replace")
 
         if self.search in text:
             print("[ALERT] Payload Match found!")
