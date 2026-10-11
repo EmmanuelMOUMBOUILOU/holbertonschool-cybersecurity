@@ -7,8 +7,17 @@ from scapy.all import sniff
 from scapy.utils import PcapWriter
 
 
+pcap_writer = None
+
+
 def packet_handler(packet):
-    """Display packet details and save the packet if requested."""
+    """Save captured packets and display supported protocol details."""
+    if pcap_writer is not None:
+        pcap_writer.write(packet)
+
+    if not hasattr(packet, "haslayer"):
+        return
+
     if packet.haslayer("IP"):
         src = packet["IP"].src
         dst = packet["IP"].dst
@@ -28,12 +37,6 @@ def packet_handler(packet):
 
         elif packet.haslayer("ICMP"):
             print(f"[ICMP] {src} -> {dst}")
-
-    if pcap_writer is not None:
-        pcap_writer.write(packet)
-
-
-pcap_writer = None
 
 
 if __name__ == "__main__":
