@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """Capture and process network packets using a worker thread."""
 
@@ -29,6 +28,9 @@ class TCPProcessor(PacketProcessor):
 
     def process(self, packet):
         """Display TCP addresses, ports, and flags."""
+        if not hasattr(packet, "haslayer"):
+            return
+
         if not packet.haslayer(IP):
             return
 
