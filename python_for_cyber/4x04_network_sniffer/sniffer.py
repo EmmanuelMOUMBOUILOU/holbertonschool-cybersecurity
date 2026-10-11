@@ -29,8 +29,12 @@ class TCPProcessor(PacketProcessor):
         if not packet.haslayer("IP"):
             return
 
-        ip = packet["IP"]
-        tcp = packet["TCP"]
+        if hasattr(packet, "getlayer"):
+            ip = packet.getlayer("IP")
+            tcp = packet.getlayer("TCP")
+        else:
+            ip = packet["IP"]
+            tcp = packet["TCP"]
 
         print(
             f"[TCP] {ip.src}:{tcp.sport} -> "
@@ -46,7 +50,10 @@ class UDPProcessor(PacketProcessor):
         if not packet.haslayer("IP"):
             return
 
-        ip = packet["IP"]
+        if hasattr(packet, "getlayer"):
+            ip = packet.getlayer("IP")
+        else:
+            ip = packet["IP"]
 
         print(f"[UDP] {ip.src} -> {ip.dst}")
 
@@ -59,7 +66,10 @@ class ICMPProcessor(PacketProcessor):
         if not packet.haslayer("IP"):
             return
 
-        ip = packet["IP"]
+        if hasattr(packet, "getlayer"):
+            ip = packet.getlayer("IP")
+        else:
+            ip = packet["IP"]
 
         print(f"[ICMP] {ip.src} -> {ip.dst}")
 
