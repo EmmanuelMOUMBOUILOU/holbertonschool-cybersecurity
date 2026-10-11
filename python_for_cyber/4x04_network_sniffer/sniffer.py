@@ -97,6 +97,40 @@ class Sniffer:
             "ICMP": ICMPProcessor()
         }
 
+        self.stats = {
+            "TCP": 0,
+            "UDP": 0,
+            "ICMP": 0,
+            "OTHER": 0
+        }
+
+    def _update_stats(self, packet):
+        """Update protocol counters for a captured packet."""
+        if not hasattr(packet, "haslayer"):
+            self.stats["OTHER"] += 1
+            return
+
+        for protocol in ("TCP", "UDP", "ICMP"):
+            if packet.haslayer(protocol):
+                self.stats[protocol] += 1
+                return
+
+        self.stats["OTHER"] += 1
+
+    def _print_stats(self):
+        """Display a summary of captured packet statistics."""
+        total = sum(self.stats.values())
+
+        print()
+        print("[STATS] Packet Statistics")
+        print("-------------------------")
+
+        for protocol, count in self.stats.items():
+            print(f"{protocol:<6}: {count}")
+
+        print("-------------------------")
+        print(f"TOTAL : {total}")
+
     def _search_payload(self, packet):
         """Search the Raw payload for the configured string."""
         if not self.search:
@@ -129,7 +163,9 @@ class Sniffer:
             print("[ALERT] Payload Match found!")
 
     def _process_packet(self, packet):
-        """Save, analyze, and inspect a captured packet."""
+        """Save, count, analyze, and inspect a captured packet."""
+        self._update_stats(packet)
+
         if self.pcap_writer is not None:
             self.pcap_writer.write(packet)
 
@@ -179,6 +215,8 @@ class Sniffer:
         finally:
             if self.pcap_writer is not None:
                 self.pcap_writer.close()
+
+            self._print_stats()
 
 
 if __name__ == "__main__":
