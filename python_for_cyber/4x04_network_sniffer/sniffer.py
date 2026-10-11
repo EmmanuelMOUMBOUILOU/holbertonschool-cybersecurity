@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Capture, analyze, and save network packets using protocol strategies."""
+"""Capture, analyze, search, and save network packets."""
 
 import argparse
 
 from scapy.all import sniff
+
+try:
+    from scapy.all import Raw
+except ImportError:
+    Raw = None
 
 try:
     from scapy.utils import PcapWriter
@@ -12,7 +17,7 @@ except ImportError:
 
 
 class PacketProcessor:
-    """Base class for network packet processors."""
+    """Base class for protocol-specific packet processors."""
 
     def process(self, packet):
         """Process a network packet."""
@@ -75,14 +80,15 @@ class ICMPProcessor(PacketProcessor):
 
 
 class Sniffer:
-    """Capture packets and delegate processing to protocol strategies."""
+    """Capture packets and delegate protocol processing."""
 
     def __init__(self, interface, filter_str, output_file):
-        """Initialize capture configuration and protocol processors."""
+        """Initialize the sniffer configuration."""
         self.interface = interface
         self.filter_str = filter_str
         self.output_file = output_file
         self.verbose = False
+        self.search = None
         self.pcap_writer = None
 
         self.processors = {
@@ -91,8 +97,39 @@ class Sniffer:
             "ICMP": ICMPProcessor()
         }
 
+    def _search_payload(self, packet):
+        """Search the Raw payload for the configured string."""
+        if not self.search:
+            return
+
+        if not hasattr(packet, "haslayer"):
+            return
+
+        raw_layer = Raw if Raw is not None else "Raw"
+
+        if not packet.haslayer(raw_layer):
+            return
+
+        if hasattr(packet, "getlayer"):
+            raw = packet.getlayer(raw_layer)
+        else:
+            raw = packet[raw_layer]
+
+        if raw is None:
+            return
+
+        payload = raw.load
+
+        if isinstance(payload, bytes):
+            text = payload.decode("utf-8", errors="replace")
+        else:
+            text = str(payload)
+
+        if self.search in text:
+            print("[ALERT] Payload Match found!")
+
     def _process_packet(self, packet):
-        """Save packets and delegate protocol processing."""
+        """Save, analyze, and inspect a captured packet."""
         if self.pcap_writer is not None:
             self.pcap_writer.write(packet)
 
@@ -102,12 +139,14 @@ class Sniffer:
                     processor.process(packet)
                     break
 
+        self._search_payload(packet)
+
         if self.verbose:
             from scapy.all import hexdump
             hexdump(packet)
 
     def start(self):
-        """Start packet capture and close resources on exit."""
+        """Start capture and release resources when finished."""
         print("[INFO] PySniffer initialized.")
 
         try:
@@ -172,6 +211,13 @@ if __name__ == "__main__":
         help="Display hexadecimal packet dumps"
     )
 
+    parser.add_argument(
+        "-s",
+        "--search",
+        metavar="STRING",
+        help="Search for a string in packet payloads"
+    )
+
     args = parser.parse_args()
 
     sniffer = Sniffer(
@@ -181,4 +227,6 @@ if __name__ == "__main__":
     )
 
     sniffer.verbose = args.verbose
+    sniffer.search = args.search
+
     sniffer.start()
