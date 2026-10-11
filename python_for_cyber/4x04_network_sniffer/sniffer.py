@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture, analyze, and optionally save network packets."""
+"""Capture, analyze, and save network packets using protocol strategies."""
 
 import argparse
 
@@ -11,49 +11,102 @@ except ImportError:
     PcapWriter = None
 
 
+class PacketProcessor:
+    """Base class for network packet processors."""
+
+    def process(self, packet):
+        """Process a network packet."""
+        raise NotImplementedError(
+            "Subclasses must implement process()"
+        )
+
+
+class TCPProcessor(PacketProcessor):
+    """Process TCP packets."""
+
+    def process(self, packet):
+        """Display TCP addresses, ports, and flags."""
+        if not packet.haslayer("IP"):
+            return
+
+        ip = packet["IP"]
+        tcp = packet["TCP"]
+
+        print(
+            f"[TCP] {ip.src}:{tcp.sport} -> "
+            f"{ip.dst}:{tcp.dport} | Flags: {tcp.flags}"
+        )
+
+
+class UDPProcessor(PacketProcessor):
+    """Process UDP packets."""
+
+    def process(self, packet):
+        """Display UDP source and destination addresses."""
+        if not packet.haslayer("IP"):
+            return
+
+        ip = packet["IP"]
+
+        print(f"[UDP] {ip.src} -> {ip.dst}")
+
+
+class ICMPProcessor(PacketProcessor):
+    """Process ICMP packets."""
+
+    def process(self, packet):
+        """Display ICMP source and destination addresses."""
+        if not packet.haslayer("IP"):
+            return
+
+        ip = packet["IP"]
+
+        print(f"[ICMP] {ip.src} -> {ip.dst}")
+
+
 class Sniffer:
-    """Capture network packets and process supported protocols."""
+    """Capture packets and delegate processing to protocol strategies."""
 
     def __init__(self, interface, filter_str, output_file):
-        """Initialize the sniffer configuration."""
+        """Initialize capture configuration and protocol processors."""
         self.interface = interface
         self.filter_str = filter_str
         self.output_file = output_file
         self.verbose = False
         self.pcap_writer = None
 
+        self.processors = {
+            "TCP": TCPProcessor(),
+            "UDP": UDPProcessor(),
+            "ICMP": ICMPProcessor()
+        }
+
     def _process_packet(self, packet):
-        """Write captured packets and display protocol information."""
+        """Save packets and delegate protocol processing."""
         if self.pcap_writer is not None:
             self.pcap_writer.write(packet)
 
-        if hasattr(packet, "haslayer") and packet.haslayer("IP"):
-            src = packet["IP"].src
-            dst = packet["IP"].dst
-
-            if packet.haslayer("TCP"):
-                tcp = packet["TCP"]
-                print(
-                    f"[TCP] {src}:{tcp.sport} -> {dst}:{tcp.dport} "
-                    f"| Flags: {tcp.flags}"
-                )
-
-            elif packet.haslayer("UDP"):
-                print(f"[UDP] {src} -> {dst}")
-
-            elif packet.haslayer("ICMP"):
-                print(f"[ICMP] {src} -> {dst}")
+        if hasattr(packet, "haslayer"):
+            for protocol, processor in self.processors.items():
+                if packet.haslayer(protocol):
+                    processor.process(packet)
+                    break
 
         if self.verbose:
             from scapy.all import hexdump
             hexdump(packet)
 
     def start(self):
-        """Start sniffing and release resources after capture."""
+        """Start packet capture and close resources on exit."""
         print("[INFO] PySniffer initialized.")
 
         try:
-            if self.output_file and PcapWriter is not None:
+            if self.output_file:
+                if PcapWriter is None:
+                    raise RuntimeError(
+                        "PCAP writing requires scapy.utils.PcapWriter"
+                    )
+
                 self.pcap_writer = PcapWriter(
                     self.output_file,
                     append=True,
@@ -85,25 +138,28 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "-i", "--interface",
-        help="Network interface"
+        "-i",
+        "--interface",
+        help="Network interface to capture packets from"
     )
 
     parser.add_argument(
-        "-f", "--filter",
-        help="BPF capture filter"
+        "-f",
+        "--filter",
+        help="BPF filter expression for packet capture"
     )
 
     parser.add_argument(
         "--write",
         metavar="FILE",
-        help="Save packets to a PCAP file"
+        help="Save captured packets to a PCAP file"
     )
 
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
-        help="Display packet hexadecimal dumps"
+        help="Display hexadecimal packet dumps"
     )
 
     args = parser.parse_args()
