@@ -21,11 +21,8 @@ class TCPProcessor(PacketProcessor):
 
     def process(self, packet):
         """Display TCP addresses, ports, and flags."""
-        ip_layer = packet.getlayer("IP")
-        tcp_layer = packet.getlayer("TCP")
-
-        if ip_layer is None or tcp_layer is None:
-            return
+        ip_layer = packet["IP"]
+        tcp_layer = packet["TCP"]
 
         src = ip_layer.src
         dst = ip_layer.dst
@@ -44,11 +41,7 @@ class UDPProcessor(PacketProcessor):
 
     def process(self, packet):
         """Display UDP source and destination addresses."""
-        ip_layer = packet.getlayer("IP")
-        udp_layer = packet.getlayer("UDP")
-
-        if ip_layer is None or udp_layer is None:
-            return
+        ip_layer = packet["IP"]
 
         print(f"[UDP] {ip_layer.src} -> {ip_layer.dst}")
 
@@ -58,20 +51,16 @@ class ICMPProcessor(PacketProcessor):
 
     def process(self, packet):
         """Display ICMP source and destination addresses."""
-        ip_layer = packet.getlayer("IP")
-        icmp_layer = packet.getlayer("ICMP")
-
-        if ip_layer is None or icmp_layer is None:
-            return
+        ip_layer = packet["IP"]
 
         print(f"[ICMP] {ip_layer.src} -> {ip_layer.dst}")
 
 
 class Sniffer:
-    """Capture packets and delegate processing to strategies."""
+    """Capture packets and delegate processing to protocol strategies."""
 
     def __init__(self, interface, filter_str, output_file):
-        """Initialize capture options and protocol processors."""
+        """Initialize capture settings and protocol processors."""
         self.interface = interface
         self.filter_str = filter_str
         self.output_file = output_file
@@ -85,7 +74,7 @@ class Sniffer:
         }
 
     def start(self):
-        """Start capture and release resources when it stops."""
+        """Start packet capture and release resources on shutdown."""
         print("[INFO] PySniffer initialized.")
 
         try:
@@ -118,7 +107,7 @@ class Sniffer:
                 self.pcap_writer = None
 
     def _process_packet(self, packet):
-        """Save packets and delegate their protocol processing."""
+        """Save packets and delegate protocol-specific processing."""
         if self.pcap_writer is not None:
             self.pcap_writer.write(packet)
 
@@ -135,7 +124,7 @@ class Sniffer:
 
 
 def main():
-    """Parse arguments and launch PySniffer."""
+    """Parse command-line arguments and start PySniffer."""
     parser = argparse.ArgumentParser(
         description="PySniffer - Network packet analyzer"
     )
