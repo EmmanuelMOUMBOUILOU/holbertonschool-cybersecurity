@@ -1,46 +1,88 @@
 #!/usr/bin/env python3
-"""Capture, filter, analyze, and save network packets using Scapy."""
+"""Capture, analyze, and save network packets using a Sniffer class."""
 
 import argparse
 
 from scapy.all import sniff
 
 
-pcap_writer = None
-verbose = False
+class Sniffer:
+    """Manage continuous network capture and packet processing."""
 
+    def __init__(self, interface, filter_str, output_file):
+        """Initialize capture settings and optional PCAP output."""
+        self.interface = interface
+        self.filter_str = filter_str
+        self.output_file = output_file
+        self.verbose = False
+        self.pcap_writer = None
 
-def packet_handler(packet):
-    """Save packets and display protocol details and optional hex dumps."""
-    if pcap_writer is not None:
-        pcap_writer.write(packet)
+    def start(self):
+        """Start packet capture and handle shutdown cleanly."""
+        print("[INFO] PySniffer initialized.")
 
-    if hasattr(packet, "haslayer") and packet.haslayer("IP"):
-        src = packet["IP"].src
-        dst = packet["IP"].dst
+        try:
+            if self.output_file:
+                from scapy.utils import PcapWriter
 
-        if packet.haslayer("TCP"):
-            sport = packet["TCP"].sport
-            dport = packet["TCP"].dport
-            flags = packet["TCP"].flags
+                self.pcap_writer = PcapWriter(
+                    self.output_file,
+                    append=True,
+                    sync=True
+                )
 
-            print(
-                f"[TCP] {src}:{sport} -> {dst}:{dport} "
-                f"| Flags: {flags}"
+            sniff(
+                iface=self.interface,
+                filter=self.filter_str,
+                prn=self._process_packet,
+                store=False
             )
 
-        elif packet.haslayer("UDP"):
-            print(f"[UDP] {src} -> {dst}")
+        except KeyboardInterrupt:
+            print("[INFO] Stopping capture...")
 
-        elif packet.haslayer("ICMP"):
-            print(f"[ICMP] {src} -> {dst}")
+        except OSError as error:
+            print(f"[ERROR] Packet capture failed: {error}")
+            raise SystemExit(1)
 
-    if verbose:
-        from scapy.all import hexdump
-        hexdump(packet)
+        finally:
+            if self.pcap_writer is not None:
+                self.pcap_writer.close()
+                self.pcap_writer = None
+
+    def _process_packet(self, packet):
+        """Save a packet and display its protocol details."""
+        if self.pcap_writer is not None:
+            self.pcap_writer.write(packet)
+
+        if hasattr(packet, "haslayer") and packet.haslayer("IP"):
+            src = packet["IP"].src
+            dst = packet["IP"].dst
+
+            if packet.haslayer("TCP"):
+                sport = packet["TCP"].sport
+                dport = packet["TCP"].dport
+                flags = packet["TCP"].flags
+
+                print(
+                    f"[TCP] {src}:{sport} -> {dst}:{dport} "
+                    f"| Flags: {flags}"
+                )
+
+            elif packet.haslayer("UDP"):
+                print(f"[UDP] {src} -> {dst}")
+
+            elif packet.haslayer("ICMP"):
+                print(f"[ICMP] {src} -> {dst}")
+
+        if self.verbose:
+            from scapy.all import hexdump
+
+            hexdump(packet)
 
 
-if __name__ == "__main__":
+def main():
+    """Parse command-line arguments and launch the sniffer."""
     parser = argparse.ArgumentParser(
         description="PySniffer - Network packet analyzer"
     )
@@ -71,34 +113,16 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    verbose = args.verbose
 
-    print("[INFO] PySniffer initialized.")
+    sniffer = Sniffer(
+        args.interface,
+        args.filter,
+        args.write
+    )
 
-    try:
-        if args.write:
-            from scapy.utils import PcapWriter
+    sniffer.verbose = args.verbose
+    sniffer.start()
 
-            pcap_writer = PcapWriter(
-                args.write,
-                append=True,
-                sync=True
-            )
 
-        sniff(
-            iface=args.interface,
-            filter=args.filter,
-            prn=packet_handler,
-            store=False
-        )
-
-    except KeyboardInterrupt:
-        print("[INFO] Stopping capture...")
-
-    except OSError as error:
-        print(f"[ERROR] Packet capture failed: {error}")
-        raise SystemExit(1)
-
-    finally:
-        if pcap_writer is not None:
-            pcap_writer.close()
+if __name__ == "__main__":
+    main()
