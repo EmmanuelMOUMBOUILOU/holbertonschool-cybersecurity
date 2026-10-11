@@ -1,79 +1,83 @@
+
 #!/usr/bin/env python3
-"""Capture and process network packets using a worker thread."""
+"""Capture, inspect, and analyze network packets with Scapy."""
 
 import argparse
 from queue import Queue
 from threading import Thread
 
-from scapy.all import IP, TCP, UDP, ICMP, Raw, sniff
-
-try:
-    from scapy.utils import PcapWriter
-except ImportError:
-    PcapWriter = None
+from scapy.all import ICMP, IP, Raw, TCP, UDP, sniff
+from scapy.utils import PcapWriter
 
 
 class PacketProcessor:
-    """Base class for protocol-specific packet processors."""
+    """Define the interface for protocol-specific processors."""
 
     def process(self, packet):
-        """Process a network packet."""
+        """Process a packet in a concrete subclass."""
         raise NotImplementedError(
             "Subclasses must implement process()"
         )
 
 
 class TCPProcessor(PacketProcessor):
-    """Process TCP packets."""
+    """Display information about TCP packets."""
 
     def process(self, packet):
-        """Display TCP addresses, ports, and flags."""
+        """Extract and display TCP addresses, ports, and flags."""
         if not hasattr(packet, "haslayer"):
             return
 
-        if not packet.haslayer(IP):
+        if not packet.haslayer(IP) or not packet.haslayer(TCP):
             return
 
-        ip = packet[IP]
-        tcp = packet[TCP]
+        ip_layer = packet[IP]
+        tcp_layer = packet[TCP]
 
         print(
-            f"[TCP] {ip.src}:{tcp.sport} -> "
-            f"{ip.dst}:{tcp.dport} | Flags: {tcp.flags}"
+            f"[TCP] {ip_layer.src}:{tcp_layer.sport} -> "
+            f"{ip_layer.dst}:{tcp_layer.dport} | "
+            f"Flags: {tcp_layer.flags}"
         )
 
 
 class UDPProcessor(PacketProcessor):
-    """Process UDP packets."""
+    """Display information about UDP packets."""
 
     def process(self, packet):
-        """Display UDP source and destination addresses."""
-        if not packet.haslayer(IP):
+        """Extract and display UDP source and destination IPs."""
+        if not hasattr(packet, "haslayer"):
             return
 
-        ip = packet[IP]
+        if not packet.haslayer(IP) or not packet.haslayer(UDP):
+            return
 
-        print(f"[UDP] {ip.src} -> {ip.dst}")
+        ip_layer = packet[IP]
+
+        print(f"[UDP] {ip_layer.src} -> {ip_layer.dst}")
 
 
 class ICMPProcessor(PacketProcessor):
-    """Process ICMP packets."""
+    """Display information about ICMP packets."""
 
     def process(self, packet):
-        """Display ICMP source and destination addresses."""
-        if not packet.haslayer(IP):
+        """Extract and display ICMP source and destination IPs."""
+        if not hasattr(packet, "haslayer"):
             return
 
-        ip = packet[IP]
+        if not packet.haslayer(IP) or not packet.haslayer(ICMP):
+            return
 
-        print(f"[ICMP] {ip.src} -> {ip.dst}")
+        ip_layer = packet[IP]
+
+        print(f"[ICMP] {ip_layer.src} -> {ip_layer.dst}")
 
 
 class Sniffer:
-    """Capture packets and process them asynchronously."""
+    """Manage packet capture, processing, and statistics."""
 
     def __init__(self, interface, filter_str, output_file):
-        """Initialize capture, processing, and statistics."""
+        """Initialize capture options and processing resources."""
         self.interface = interface
         self.filter_str = filter_str
         self.output_file = output_file
@@ -100,11 +104,11 @@ class Sniffer:
         self.worker = None
 
     def _enqueue_packet(self, packet):
-        """Add a captured packet to the processing queue."""
+        """Place a captured packet into the processing queue."""
         self.packet_queue.put(packet)
 
     def _process_queue(self):
-        """Process queued packets until the stop signal arrives."""
+        """Consume queued packets until the stop signal arrives."""
         while True:
             packet = self.packet_queue.get()
 
@@ -117,38 +121,40 @@ class Sniffer:
                 self.packet_queue.task_done()
 
     def _update_stats(self, packet):
-        """Count packets by protocol."""
+        """Update protocol counters for a captured packet."""
         if not hasattr(packet, "haslayer"):
             self.stats["OTHER"] += 1
             return
 
-        for protocol, name in (
+        protocol_layers = (
             (TCP, "TCP"),
             (UDP, "UDP"),
             (ICMP, "ICMP")
-        ):
-            if packet.haslayer(protocol):
-                self.stats[name] += 1
+        )
+
+        for layer_class, protocol_name in protocol_layers:
+            if packet.haslayer(layer_class):
+                self.stats[protocol_name] += 1
                 return
 
         self.stats["OTHER"] += 1
 
     def _print_stats(self):
-        """Display the final protocol statistics."""
-        total = sum(self.stats.values())
+        """Print the final protocol statistics."""
+        total_packets = sum(self.stats.values())
 
         print()
         print("[STATS] Packet Statistics")
         print("-------------------------")
 
-        for protocol, count in self.stats.items():
-            print(f"{protocol:<6}: {count}")
+        for protocol_name, count in self.stats.items():
+            print(f"{protocol_name:<6}: {count}")
 
         print("-------------------------")
-        print(f"TOTAL : {total}")
+        print(f"TOTAL : {total_packets}")
 
     def _search_payload(self, packet):
-        """Search the Raw payload for the configured string."""
+        """Search packet payloads for a configured text string."""
         if not self.search:
             return
 
@@ -158,22 +164,30 @@ class Sniffer:
         if not packet.haslayer(Raw):
             return
 
-        payload = packet[Raw].load
-        text = payload.decode("utf-8", errors="replace")
+        raw_layer = packet[Raw]
+        payload = raw_layer.load
 
-        if self.search in text:
+        if isinstance(payload, bytes):
+            payload_text = payload.decode(
+                "utf-8",
+                errors="replace"
+            )
+        else:
+            payload_text = str(payload)
+
+        if self.search in payload_text:
             print("[ALERT] Payload Match found!")
 
     def _process_packet(self, packet):
-        """Save, count, analyze, and inspect a packet."""
+        """Write, count, inspect, and display a captured packet."""
         self._update_stats(packet)
 
         if self.pcap_writer is not None:
             self.pcap_writer.write(packet)
 
         if hasattr(packet, "haslayer"):
-            for protocol, processor in self.processors.items():
-                if packet.haslayer(protocol):
+            for layer_class, processor in self.processors.items():
+                if packet.haslayer(layer_class):
                     processor.process(packet)
                     break
 
@@ -184,16 +198,11 @@ class Sniffer:
             hexdump(packet)
 
     def start(self):
-        """Capture packets while a worker processes the queue."""
+        """Start capture and process packets in a worker thread."""
         print("[INFO] PySniffer initialized.")
 
         try:
             if self.output_file:
-                if PcapWriter is None:
-                    raise RuntimeError(
-                        "PCAP writing requires scapy.utils.PcapWriter"
-                    )
-
                 self.pcap_writer = PcapWriter(
                     self.output_file,
                     append=True,
@@ -218,7 +227,7 @@ class Sniffer:
 
         except OSError as error:
             print(f"[ERROR] Packet capture failed: {error}")
-            raise SystemExit(1)
+            raise SystemExit(1) from error
 
         finally:
             if self.worker is not None and self.worker.is_alive():
@@ -232,7 +241,8 @@ class Sniffer:
             self._print_stats()
 
 
-if __name__ == "__main__":
+def main():
+    """Parse command-line arguments and start PySniffer."""
     parser = argparse.ArgumentParser(
         description="PySniffer - Network packet analyzer"
     )
@@ -279,5 +289,8 @@ if __name__ == "__main__":
 
     sniffer.verbose = args.verbose
     sniffer.search = args.search
-
     sniffer.start()
+
+
+if __name__ == "__main__":
+    main()
