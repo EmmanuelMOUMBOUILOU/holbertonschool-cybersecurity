@@ -8,6 +8,11 @@ try:
 except ImportError:
     sniff = None
 
+try:
+    from scapy.utils import PcapWriter
+except ImportError:
+    PcapWriter = None
+
 
 class Sniffer:
     """Manage network packet capture and processing."""
@@ -25,9 +30,7 @@ class Sniffer:
         print("[INFO] PySniffer initialized.")
 
         try:
-            if self.output_file:
-                from scapy.utils import PcapWriter
-
+            if self.output_file and PcapWriter is not None:
                 self.pcap_writer = PcapWriter(
                     self.output_file,
                     append=True,
