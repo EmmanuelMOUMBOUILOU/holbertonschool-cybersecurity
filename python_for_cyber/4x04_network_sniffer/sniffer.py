@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Capture, analyze, search, and save network packets."""
+"""Capture and process network packets using a worker thread."""
 
 import argparse
+from queue import Queue
+from threading import Thread
 
 from scapy.all import sniff
 
@@ -80,10 +82,10 @@ class ICMPProcessor(PacketProcessor):
 
 
 class Sniffer:
-    """Capture packets and delegate protocol processing."""
+    """Capture packets and process them asynchronously."""
 
     def __init__(self, interface, filter_str, output_file):
-        """Initialize the sniffer configuration."""
+        """Initialize capture, processing, and statistics."""
         self.interface = interface
         self.filter_str = filter_str
         self.output_file = output_file
@@ -104,8 +106,30 @@ class Sniffer:
             "OTHER": 0
         }
 
+        self.packet_queue = Queue()
+        self.queue = self.packet_queue
+        self.stop_signal = object()
+        self.worker = None
+
+    def _enqueue_packet(self, packet):
+        """Add a captured packet to the processing queue."""
+        self.packet_queue.put(packet)
+
+    def _process_queue(self):
+        """Process queued packets until the stop signal arrives."""
+        while True:
+            packet = self.packet_queue.get()
+
+            try:
+                if packet is self.stop_signal:
+                    return
+
+                self._process_packet(packet)
+            finally:
+                self.packet_queue.task_done()
+
     def _update_stats(self, packet):
-        """Update protocol counters for a captured packet."""
+        """Count packets by protocol."""
         if not hasattr(packet, "haslayer"):
             self.stats["OTHER"] += 1
             return
@@ -118,7 +142,7 @@ class Sniffer:
         self.stats["OTHER"] += 1
 
     def _print_stats(self):
-        """Display a summary of captured packet statistics."""
+        """Display the final protocol statistics."""
         total = sum(self.stats.values())
 
         print()
@@ -163,7 +187,7 @@ class Sniffer:
             print("[ALERT] Payload Match found!")
 
     def _process_packet(self, packet):
-        """Save, count, analyze, and inspect a captured packet."""
+        """Save, count, analyze, and inspect a packet."""
         self._update_stats(packet)
 
         if self.pcap_writer is not None:
@@ -182,7 +206,7 @@ class Sniffer:
             hexdump(packet)
 
     def start(self):
-        """Start capture and release resources when finished."""
+        """Capture packets while a worker processes the queue."""
         print("[INFO] PySniffer initialized.")
 
         try:
@@ -198,10 +222,16 @@ class Sniffer:
                     sync=True
                 )
 
+            self.worker = Thread(
+                target=self._process_queue,
+                daemon=False
+            )
+            self.worker.start()
+
             sniff(
                 iface=self.interface,
                 filter=self.filter_str,
-                prn=self._process_packet,
+                prn=self._enqueue_packet,
                 store=False
             )
 
@@ -213,6 +243,11 @@ class Sniffer:
             raise SystemExit(1)
 
         finally:
+            if self.worker is not None and self.worker.is_alive():
+                self.packet_queue.put(self.stop_signal)
+                self.packet_queue.join()
+                self.worker.join()
+
             if self.pcap_writer is not None:
                 self.pcap_writer.close()
 
