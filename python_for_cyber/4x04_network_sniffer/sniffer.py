@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """Capture, inspect, and analyze network packets with Scapy."""
 
