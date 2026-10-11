@@ -1,4 +1,21 @@
-#!/usr/bin/env python3
-"""Initialize the PySniffer network sniffer project."""
 
-print("[INFO] PySniffer initialized.")
+#!/usr/bin/env python3
+"""Capture and display network packets using Scapy."""
+
+from scapy.all import sniff
+from scapy.error import Scapy_Exception
+
+
+def packet_handler(packet):
+    """Print a one-line summary of a captured packet."""
+    print(packet.summary())
+
+
+if __name__ == "__main__":
+    print("[INFO] PySniffer initialized.")
+
+    try:
+        sniff(count=5, prn=packet_handler)
+    except (OSError, Scapy_Exception) as error:
+        print(f"[ERROR] Packet capture failed: {error}")
+        raise SystemExit(1)
