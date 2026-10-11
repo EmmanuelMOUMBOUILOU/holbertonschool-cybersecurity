@@ -2,7 +2,6 @@
 """Capture and display network packets using Scapy."""
 
 from scapy.all import sniff
-from scapy.error import Scapy_Exception
 
 
 def packet_handler(packet):
@@ -15,6 +14,6 @@ if __name__ == "__main__":
 
     try:
         sniff(count=5, prn=packet_handler)
-    except (OSError, Scapy_Exception) as error:
+    except OSError as error:
         print(f"[ERROR] Packet capture failed: {error}")
         raise SystemExit(1)
