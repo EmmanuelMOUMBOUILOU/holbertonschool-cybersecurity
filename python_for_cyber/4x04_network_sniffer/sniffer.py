@@ -3,14 +3,17 @@
 
 import argparse
 
-from scapy.all import sniff
+try:
+    from scapy.all import sniff
+except ImportError:
+    sniff = None
 
 
 class Sniffer:
-    """Manage continuous network capture and packet processing."""
+    """Manage network packet capture and processing."""
 
     def __init__(self, interface, filter_str, output_file):
-        """Initialize capture settings and optional PCAP output."""
+        """Initialize the sniffer configuration."""
         self.interface = interface
         self.filter_str = filter_str
         self.output_file = output_file
@@ -18,7 +21,7 @@ class Sniffer:
         self.pcap_writer = None
 
     def start(self):
-        """Start packet capture and handle shutdown cleanly."""
+        """Start packet capture and release resources on shutdown."""
         print("[INFO] PySniffer initialized.")
 
         try:
@@ -29,6 +32,11 @@ class Sniffer:
                     self.output_file,
                     append=True,
                     sync=True
+                )
+
+            if sniff is None:
+                raise ImportError(
+                    "Scapy is required to capture network packets"
                 )
 
             sniff(
@@ -51,7 +59,7 @@ class Sniffer:
                 self.pcap_writer = None
 
     def _process_packet(self, packet):
-        """Save a packet and display its protocol details."""
+        """Save packets and display protocol and hexadecimal details."""
         if self.pcap_writer is not None:
             self.pcap_writer.write(packet)
 
@@ -82,7 +90,7 @@ class Sniffer:
 
 
 def main():
-    """Parse command-line arguments and launch the sniffer."""
+    """Parse arguments and launch PySniffer."""
     parser = argparse.ArgumentParser(
         description="PySniffer - Network packet analyzer"
     )
