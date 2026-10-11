@@ -1,6 +1,5 @@
-
 #!/usr/bin/env python3
-"""Unit tests for the PySniffer protocol processors."""
+"""Unit tests for PySniffer."""
 
 import io
 import unittest
