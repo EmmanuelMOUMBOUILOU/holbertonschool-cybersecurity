@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Capture and filter network traffic continuously using Scapy."""
+"""Capture, filter, analyze, and save network packets using Scapy."""
 
 import argparse
 
 from scapy.all import sniff
+from scapy.utils import PcapWriter
 
 
 def packet_handler(packet):
-    """Display protocol information for captured IPv4 packets."""
+    """Display packet details and save the packet if requested."""
     if packet.haslayer("IP"):
         src = packet["IP"].src
         dst = packet["IP"].dst
@@ -28,6 +29,12 @@ def packet_handler(packet):
         elif packet.haslayer("ICMP"):
             print(f"[ICMP] {src} -> {dst}")
 
+    if pcap_writer is not None:
+        pcap_writer.write(packet)
+
+
+pcap_writer = None
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -46,18 +53,38 @@ if __name__ == "__main__":
         help="BPF filter expression for packet capture"
     )
 
+    parser.add_argument(
+        "--write",
+        metavar="FILE",
+        help="Save captured packets to a PCAP file"
+    )
+
     args = parser.parse_args()
 
     print("[INFO] PySniffer initialized.")
 
     try:
+        if args.write:
+            pcap_writer = PcapWriter(
+                args.write,
+                append=True,
+                sync=True
+            )
+
         sniff(
             iface=args.interface,
             filter=args.filter,
-            prn=packet_handler
+            prn=packet_handler,
+            store=False
         )
+
     except KeyboardInterrupt:
         print("[INFO] Stopping capture...")
+
     except OSError as error:
         print(f"[ERROR] Packet capture failed: {error}")
         raise SystemExit(1)
+
+    finally:
+        if pcap_writer is not None:
+            pcap_writer.close()
