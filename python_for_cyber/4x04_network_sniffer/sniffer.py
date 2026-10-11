@@ -4,7 +4,6 @@
 import argparse
 
 from scapy.all import sniff
-from scapy.utils import PcapWriter
 
 
 pcap_writer = None
@@ -16,10 +15,7 @@ def packet_handler(packet):
     if pcap_writer is not None:
         pcap_writer.write(packet)
 
-    if not hasattr(packet, "haslayer"):
-        return
-
-    if packet.haslayer("IP"):
+    if hasattr(packet, "haslayer") and packet.haslayer("IP"):
         src = packet["IP"].src
         dst = packet["IP"].dst
 
@@ -39,9 +35,9 @@ def packet_handler(packet):
         elif packet.haslayer("ICMP"):
             print(f"[ICMP] {src} -> {dst}")
 
-        if verbose:
-            from scapy.all import hexdump
-            hexdump(packet)
+    if verbose:
+        from scapy.all import hexdump
+        hexdump(packet)
 
 
 if __name__ == "__main__":
@@ -81,6 +77,8 @@ if __name__ == "__main__":
 
     try:
         if args.write:
+            from scapy.utils import PcapWriter
+
             pcap_writer = PcapWriter(
                 args.write,
                 append=True,
