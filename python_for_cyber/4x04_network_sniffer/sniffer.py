@@ -1,45 +1,89 @@
 #!/usr/bin/env python3
-"""Capture, analyze, and save network packets using a Sniffer class."""
+"""Capture, analyze, and save network packets using protocol strategies."""
 
 import argparse
 
-try:
-    from scapy.all import sniff
-except ImportError:
-    sniff = None
+from scapy.all import sniff
 
-try:
-    from scapy.utils import PcapWriter
-except ImportError:
-    PcapWriter = None
+
+class PacketProcessor:
+    """Define the common interface for packet processors."""
+
+    def process(self, packet):
+        """Process a packet using a protocol-specific implementation."""
+        raise NotImplementedError(
+            "Subclasses must implement the process method"
+        )
+
+
+class TCPProcessor(PacketProcessor):
+    """Process TCP packets."""
+
+    def process(self, packet):
+        """Display TCP addresses, ports, and flags."""
+        src = packet["IP"].src
+        dst = packet["IP"].dst
+        sport = packet["TCP"].sport
+        dport = packet["TCP"].dport
+        flags = packet["TCP"].flags
+
+        print(
+            f"[TCP] {src}:{sport} -> {dst}:{dport} "
+            f"| Flags: {flags}"
+        )
+
+
+class UDPProcessor(PacketProcessor):
+    """Process UDP packets."""
+
+    def process(self, packet):
+        """Display UDP source and destination addresses."""
+        src = packet["IP"].src
+        dst = packet["IP"].dst
+
+        print(f"[UDP] {src} -> {dst}")
+
+
+class ICMPProcessor(PacketProcessor):
+    """Process ICMP packets."""
+
+    def process(self, packet):
+        """Display ICMP source and destination addresses."""
+        src = packet["IP"].src
+        dst = packet["IP"].dst
+
+        print(f"[ICMP] {src} -> {dst}")
 
 
 class Sniffer:
-    """Manage network packet capture and processing."""
+    """Manage network capture and delegate protocol processing."""
 
     def __init__(self, interface, filter_str, output_file):
-        """Initialize the sniffer configuration."""
+        """Initialize capture settings and protocol processors."""
         self.interface = interface
         self.filter_str = filter_str
         self.output_file = output_file
         self.verbose = False
         self.pcap_writer = None
 
+        self.processors = {
+            "TCP": TCPProcessor(),
+            "UDP": UDPProcessor(),
+            "ICMP": ICMPProcessor()
+        }
+
     def start(self):
-        """Start packet capture and release resources on shutdown."""
+        """Start packet capture and close resources on shutdown."""
         print("[INFO] PySniffer initialized.")
 
         try:
-            if self.output_file and PcapWriter is not None:
+            if self.output_file:
+                from scapy.utils import PcapWriter
+
                 self.pcap_writer = PcapWriter(
                     self.output_file,
                     append=True,
                     sync=True
-                )
-
-            if sniff is None:
-                raise ImportError(
-                    "Scapy is required to capture network packets"
                 )
 
             sniff(
@@ -62,29 +106,15 @@ class Sniffer:
                 self.pcap_writer = None
 
     def _process_packet(self, packet):
-        """Save packets and display protocol and hexadecimal details."""
+        """Save packets and delegate processing to protocol strategies."""
         if self.pcap_writer is not None:
             self.pcap_writer.write(packet)
 
         if hasattr(packet, "haslayer") and packet.haslayer("IP"):
-            src = packet["IP"].src
-            dst = packet["IP"].dst
-
-            if packet.haslayer("TCP"):
-                sport = packet["TCP"].sport
-                dport = packet["TCP"].dport
-                flags = packet["TCP"].flags
-
-                print(
-                    f"[TCP] {src}:{sport} -> {dst}:{dport} "
-                    f"| Flags: {flags}"
-                )
-
-            elif packet.haslayer("UDP"):
-                print(f"[UDP] {src} -> {dst}")
-
-            elif packet.haslayer("ICMP"):
-                print(f"[ICMP] {src} -> {dst}")
+            for protocol, processor in self.processors.items():
+                if packet.haslayer(protocol):
+                    processor.process(packet)
+                    break
 
         if self.verbose:
             from scapy.all import hexdump
@@ -93,7 +123,7 @@ class Sniffer:
 
 
 def main():
-    """Parse arguments and launch PySniffer."""
+    """Parse command-line arguments and start PySniffer."""
     parser = argparse.ArgumentParser(
         description="PySniffer - Network packet analyzer"
     )
