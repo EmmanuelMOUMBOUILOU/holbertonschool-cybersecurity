@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture, analyze, and save network packets using protocol strategies."""
+"""Capture, analyze, and save packets using protocol strategies."""
 
 import argparse
 
@@ -7,12 +7,12 @@ from scapy.all import sniff
 
 
 class PacketProcessor:
-    """Define the common interface for packet processors."""
+    """Define the interface shared by protocol processors."""
 
     def process(self, packet):
-        """Process a packet using a protocol-specific implementation."""
+        """Process a packet in a protocol-specific way."""
         raise NotImplementedError(
-            "Subclasses must implement the process method"
+            "Subclasses must implement process()"
         )
 
 
@@ -21,11 +21,17 @@ class TCPProcessor(PacketProcessor):
 
     def process(self, packet):
         """Display TCP addresses, ports, and flags."""
-        src = packet["IP"].src
-        dst = packet["IP"].dst
-        sport = packet["TCP"].sport
-        dport = packet["TCP"].dport
-        flags = packet["TCP"].flags
+        ip_layer = packet.getlayer("IP")
+        tcp_layer = packet.getlayer("TCP")
+
+        if ip_layer is None or tcp_layer is None:
+            return
+
+        src = ip_layer.src
+        dst = ip_layer.dst
+        sport = tcp_layer.sport
+        dport = tcp_layer.dport
+        flags = tcp_layer.flags
 
         print(
             f"[TCP] {src}:{sport} -> {dst}:{dport} "
@@ -38,10 +44,13 @@ class UDPProcessor(PacketProcessor):
 
     def process(self, packet):
         """Display UDP source and destination addresses."""
-        src = packet["IP"].src
-        dst = packet["IP"].dst
+        ip_layer = packet.getlayer("IP")
+        udp_layer = packet.getlayer("UDP")
 
-        print(f"[UDP] {src} -> {dst}")
+        if ip_layer is None or udp_layer is None:
+            return
+
+        print(f"[UDP] {ip_layer.src} -> {ip_layer.dst}")
 
 
 class ICMPProcessor(PacketProcessor):
@@ -49,17 +58,20 @@ class ICMPProcessor(PacketProcessor):
 
     def process(self, packet):
         """Display ICMP source and destination addresses."""
-        src = packet["IP"].src
-        dst = packet["IP"].dst
+        ip_layer = packet.getlayer("IP")
+        icmp_layer = packet.getlayer("ICMP")
 
-        print(f"[ICMP] {src} -> {dst}")
+        if ip_layer is None or icmp_layer is None:
+            return
+
+        print(f"[ICMP] {ip_layer.src} -> {ip_layer.dst}")
 
 
 class Sniffer:
-    """Manage network capture and delegate protocol processing."""
+    """Capture packets and delegate processing to strategies."""
 
     def __init__(self, interface, filter_str, output_file):
-        """Initialize capture settings and protocol processors."""
+        """Initialize capture options and protocol processors."""
         self.interface = interface
         self.filter_str = filter_str
         self.output_file = output_file
@@ -73,7 +85,7 @@ class Sniffer:
         }
 
     def start(self):
-        """Start packet capture and close resources on shutdown."""
+        """Start capture and release resources when it stops."""
         print("[INFO] PySniffer initialized.")
 
         try:
@@ -106,7 +118,7 @@ class Sniffer:
                 self.pcap_writer = None
 
     def _process_packet(self, packet):
-        """Save packets and delegate processing to protocol strategies."""
+        """Save packets and delegate their protocol processing."""
         if self.pcap_writer is not None:
             self.pcap_writer.write(packet)
 
@@ -123,7 +135,7 @@ class Sniffer:
 
 
 def main():
-    """Parse command-line arguments and start PySniffer."""
+    """Parse arguments and launch PySniffer."""
     parser = argparse.ArgumentParser(
         description="PySniffer - Network packet analyzer"
     )
